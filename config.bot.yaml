@@ -1,0 +1,8 @@
+shannon_gmo:
+  strategy: shannon
+  symbol:
+    base: BTC
+    quote: JPY
+    settlement: JPY
+    type: spot
+    exc: gmo
