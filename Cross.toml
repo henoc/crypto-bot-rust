@@ -1,0 +1,10 @@
+[target.x86_64-unknown-linux-gnu]
+# コンパイルできない、gcc?
+# image = "rust:1.69-alpine"
+# pre-build = ["apk add pkgconfig libressl-dev && rustup target add x86_64-unknown-linux-gnu"]
+
+# コンパイルできるが、バイナリが要求するlibssl.so.1.1がamazonlinux2023にない
+# amazonlinux2ではglibcのバージョンが低い(2.26、要求は2.28)ので実行できない
+# image = "rust:1.69"   
+# pre-build = ["apt-get update && apt-get install -y pkg-config libssl-dev"]
+dockerfile = "./Dockerfile"

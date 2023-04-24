@@ -35,7 +35,7 @@ pub fn start_shannon_gmo(scheduler: &mut AsyncScheduler, symbol: Symbol) {
     let symbol_ref1 = symbol.clone();
     let symbol_ref2 = symbol.clone();
 
-    scheduler.every(1u32.minutes()).run(move || {
+    scheduler.every(5u32.minutes()).run(move || {
         let client = GmoClient::new(Some(CREDENTIALS.gmo.clone()));
         let symbol = symbol_ref1.clone();
         async move {
