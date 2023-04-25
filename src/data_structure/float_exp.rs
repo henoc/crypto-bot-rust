@@ -74,6 +74,15 @@ impl Sub for FloatExp {
     }
 }
 
+impl Add<f64> for FloatExp {
+    type Output = Self;
+
+    fn add(self, rhs: f64) -> Self::Output {
+        let rhs = FloatExp::from_f64(rhs, self.exp);
+        Self::new(self.value + rhs.value, self.exp)
+    }
+}
+
 impl Mul<f64> for FloatExp {
     type Output = Self;
 

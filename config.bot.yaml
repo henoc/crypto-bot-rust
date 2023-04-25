@@ -6,3 +6,6 @@ shannon_gmo:
     settlement: JPY
     type: spot
     exc: gmo
+  virtual_amount:
+    base: 0.0381
+    quote: 141708

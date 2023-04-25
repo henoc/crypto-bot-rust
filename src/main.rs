@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
     match strategy {
         Strategy::Shannon(strategy_config) => {
             let mut scheduler = AsyncScheduler::new();
-            strategy::shannon_gmo::start_shannon_gmo(&mut scheduler, strategy_config.symbol.clone());
+            strategy::shannon_gmo::start_shannon_gmo(&mut scheduler, strategy_config);
             run_forever(scheduler).await;
         }
     }

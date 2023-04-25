@@ -16,6 +16,13 @@ pub enum Strategy {
 #[derive(Debug, Deserialize)]
 pub struct ShannonConfig {
     pub symbol: Symbol,
+    pub virtual_amount: VirtualAmount,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct VirtualAmount {
+    pub base: f64,
+    pub quote: f64,
 }
 
 pub fn load_config() -> Result<Config> {

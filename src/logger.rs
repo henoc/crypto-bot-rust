@@ -10,8 +10,8 @@ impl log::Log for BotLogger {
 
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
-            let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S+00:00");
-            println!("[{} {}] {}", timestamp, record.target(), record.args());
+            let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S.%3fZ");
+            println!("{} {} {}", timestamp, record.target(), record.args());
         }
     }
 

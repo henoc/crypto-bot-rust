@@ -19,6 +19,8 @@ use crate::client::gmo::GmoClientResponse;
 use crate::client::gmo::GmoTimeInForce;
 use crate::client::gmo::Tickers;
 use crate::client::mail::send_mail;
+use crate::config::ShannonConfig;
+use crate::config::VirtualAmount;
 use crate::data_structure::float_exp::FloatExp;
 use crate::data_structure::num_utils::ceil_int;
 use crate::data_structure::num_utils::floor_int;
@@ -29,25 +31,27 @@ use crate::symbol::{Symbol, SymbolPrecision};
 
 static BALANCE: OnceCell<RwLock<Balance>> = OnceCell::new();
 
-pub fn start_shannon_gmo(scheduler: &mut AsyncScheduler, symbol: Symbol) {
+pub fn start_shannon_gmo(scheduler: &mut AsyncScheduler, config: &ShannonConfig) {
     
-    BALANCE.set(RwLock::new(Balance::new(symbol.clone()))).unwrap();
-    let symbol_ref1 = symbol.clone();
-    let symbol_ref2 = symbol.clone();
+    BALANCE.set(RwLock::new(Balance::new(config.symbol.clone()))).unwrap();
+    let symbol_ref1 = config.symbol.clone();
+    let symbol_ref2 = config.symbol.clone();
+    let virtual_amount_ref = config.virtual_amount.clone();
 
     scheduler.every(5u32.minutes()).run(move || {
         let client = GmoClient::new(Some(CREDENTIALS.gmo.clone()));
         let symbol = symbol_ref1.clone();
+        let virtual_amount = virtual_amount_ref.clone();
         async move {
             update_assets(&client, &symbol).await.pipe(capture_result(&symbol));
             cancel_all_orders(&client, &symbol).await.pipe(capture_result(&symbol));
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            create_order(&client, &symbol).await.pipe(capture_result(&symbol));
+            create_order(&client, &symbol, &virtual_amount).await.pipe(capture_result(&symbol));
         }
     });
 
     // **:58 ごと
-    scheduler.every(1u32.hours()).plus(58u32.minutes()).run(move || {
+    scheduler.every(58u32.minutes()).plus(1u32.hours()).run(move || {
         let symbol = symbol_ref2.clone();
         async move {
             report(&symbol).await.pipe(capture_result(&symbol));
@@ -103,13 +107,13 @@ async fn cancel_all_orders(client: &GmoClient, symbol: &Symbol) -> Result<()> {
     Ok(())
 }
 
-async fn create_order(client: &GmoClient, symbol: &Symbol) -> Result<()> {
+async fn create_order(client: &GmoClient, symbol: &Symbol, virtual_amount: &VirtualAmount) -> Result<()> {
     let ticker: GmoClientResponse<Tickers> = client.get_public("/v1/ticker", Some(&hashmap! {"symbol".to_owned() => symbol.to_native()})).await?;
     let last_price = ticker.into_result()?.first().unwrap().last.parse::<i64>()?;
     let mut handles = vec![];
     for &side in &[Side::Buy, Side::Sell] {
-        let base_amount = BALANCE.get().context("BALANCE failed")?.read().base;
-        let quote = BALANCE.get().context("BALANCE failed")?.read().quote;
+        let base_amount = BALANCE.get().context("BALANCE failed")?.read().base + virtual_amount.base;
+        let quote = BALANCE.get().context("BALANCE failed")?.read().quote + virtual_amount.quote;
         let target_price = if side == Side::Buy {
             floor_int(last_price, (-symbol.amount_precision()) as u32)
             .min(
