@@ -3,6 +3,7 @@ cwd: /home/ec2-user
 env:
   CMD: /home/ec2-user/bot --name shannon_gmo
   HOME: /home/ec2-user
+  RUST_BACKTRACE: 1
 require_cmd: test $(hostname) = s3
 log:
   file: /home/ec2-user/logs/shannon_gmo.log
