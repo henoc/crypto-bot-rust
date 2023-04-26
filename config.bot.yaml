@@ -7,5 +7,5 @@ shannon_gmo:
     type: spot
     exc: gmo
   virtual_amount:
-    base: 0.0381
-    quote: 141708
+    base: 0.1143      # 0.0381*3
+    quote: 425124     # 141708*3

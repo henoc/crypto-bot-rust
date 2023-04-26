@@ -65,7 +65,7 @@ pub struct GmoClientResponse<T> {
     pub status: u16,
     pub data: Option<T>,
     pub messages: Option<Vec<GmoClientResponseMessage>>,
-    pub responsetime: String,
+    pub responsetime: Option<String>,
 }
 
 impl <T> GmoClientResponse<T> {
@@ -138,7 +138,8 @@ async fn test_gmo_client_account_assets() {
     use super::credentials::CREDENTIALS;
     let gmo = GmoClient::new(Some(CREDENTIALS.gmo.clone()));
     let res: GmoClientResponse<AccountAssets> = gmo.get_private("/v1/account/assets", None).await.unwrap();
-    println!("{:?}", res.data.unwrap()[0]);
+    println!("{:?}", res);
+    println!("{:?}", res.into_result());
 }
 
 #[tokio::test]
