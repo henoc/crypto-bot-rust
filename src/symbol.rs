@@ -9,6 +9,7 @@ pub enum Exchange {
     Bitflyer,
     Binance,
     Gmo,
+    Coincheck,
 }
 
 impl Exchange {
@@ -68,6 +69,7 @@ impl Symbol {
                 SymbolType::Perp => format!("{}_{}", self.base, self.quote),
                 SymbolType::Spot => format!("{}", self.base),
             },
+            Exchange::Coincheck => format!("{}_{}", self.base.to_lowercase(), self.quote.to_lowercase()),
             Exchange::Binance => format!("{}{}", self.base, self.quote),
             _ => panic!("not implemented"),
         }

@@ -1,7 +1,4 @@
 use anyhow::Context;
-use clokwerk::AsyncScheduler;
-use clokwerk::Job;
-use clokwerk::TimeUnits;
 use log::info;
 use maplit::hashmap;
 use once_cell::sync::OnceCell;
@@ -10,6 +7,8 @@ use anyhow::Result;
 use serde_json::Value;
 use serde_json::json;
 use tap::Pipe;
+use tokio::select;
+use tokio::spawn;
 
 use crate::client::credentials::CREDENTIALS;
 use crate::client::gmo::AccountAssets;
@@ -19,6 +18,7 @@ use crate::client::gmo::GmoClientResponse;
 use crate::client::gmo::GmoTimeInForce;
 use crate::client::gmo::Tickers;
 use crate::client::mail::send_mail;
+use crate::client::method::EmptyQuery;
 use crate::config::ShannonConfig;
 use crate::config::VirtualAmount;
 use crate::data_structure::float_exp::FloatExp;
@@ -28,35 +28,40 @@ use crate::error_types::BotError;
 use crate::order_types::OrderType;
 use crate::order_types::Side;
 use crate::symbol::{Symbol, SymbolPrecision};
+use crate::utils::time::ScheduleExpr;
+use crate::utils::time::sleep_until_next;
 
 static BALANCE: OnceCell<RwLock<Balance>> = OnceCell::new();
 
-pub fn start_shannon_gmo(scheduler: &mut AsyncScheduler, config: &ShannonConfig) {
+pub async fn start_shannon_gmo(config: &ShannonConfig) {
     
     BALANCE.set(RwLock::new(Balance::new(config.symbol.clone()))).unwrap();
     let symbol_ref1 = config.symbol.clone();
     let symbol_ref2 = config.symbol.clone();
     let virtual_amount_ref = config.virtual_amount.clone();
 
-    scheduler.every(5u32.minutes()).run(move || {
-        let client = GmoClient::new(Some(CREDENTIALS.gmo.clone()));
-        let symbol = symbol_ref1.clone();
-        let virtual_amount = virtual_amount_ref.clone();
-        async move {
-            update_assets(&client, &symbol).await.pipe(capture_result(&symbol));
-            cancel_all_orders(&client, &symbol).await.pipe(capture_result(&symbol));
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            create_order(&client, &symbol, &virtual_amount).await.pipe(capture_result(&symbol));
-        }
-    });
-
-    // **:58 ごと
-    scheduler.every(58u32.minutes()).plus(1u32.hours()).run(move || {
-        let symbol = symbol_ref2.clone();
-        async move {
-            report(&symbol).await.pipe(capture_result(&symbol));
-        }
-    });
+    let client = GmoClient::new(Some(CREDENTIALS.gmo.clone()));
+    let virtual_amount = virtual_amount_ref.clone();
+    
+    select! {
+        _ = spawn(async move {
+            let symbol = symbol_ref1.clone();
+            loop {
+                sleep_until_next(ScheduleExpr::EveryMinute {q: 5, r: 0, second: 0}).await;
+                update_assets(&client, &symbol).await.pipe(capture_result(&symbol));
+                cancel_all_orders(&client, &symbol).await.pipe(capture_result(&symbol));
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                create_order(&client, &symbol, &virtual_amount).await.pipe(capture_result(&symbol));
+            }
+        }) => {}
+        _ = spawn(async move {
+            let symbol = symbol_ref2.clone();
+            loop {
+                sleep_until_next(ScheduleExpr::EveryHour {q: 1, r: 0, minute: 58, second: 0}).await;
+                report(&symbol).await.pipe(capture_result(&symbol));
+            }
+        }) => {}
+    }
 }
 
 fn capture_result(symbol: &Symbol) -> impl Fn(Result<()>) + '_ {
@@ -90,7 +95,7 @@ impl Balance {
 
 async fn update_assets(client: &GmoClient, symbol: &Symbol) -> Result<()> {
     info!("update_assets");
-    let assets: GmoClientResponse<AccountAssets> = client.get_private("/v1/account/assets", None).await?;
+    let assets: GmoClientResponse<AccountAssets> = client.get_private("/v1/account/assets", EmptyQuery).await?;
     for asset in assets.into_result()? {
         if asset.symbol == symbol.base {
             BALANCE.get().context("BALANCE failed")?.write().base = asset.amount.parse::<f64>()?.pipe(|x| FloatExp::from_f64(x, symbol.amount_precision()));
@@ -108,7 +113,7 @@ async fn cancel_all_orders(client: &GmoClient, symbol: &Symbol) -> Result<()> {
 }
 
 async fn create_order(client: &GmoClient, symbol: &Symbol, virtual_amount: &VirtualAmount) -> Result<()> {
-    let ticker: GmoClientResponse<Tickers> = client.get_public("/v1/ticker", Some(&hashmap! {"symbol".to_owned() => symbol.to_native()})).await?;
+    let ticker: GmoClientResponse<Tickers> = client.get_public("/v1/ticker", hashmap! {"symbol".to_owned() => symbol.to_native()}).await?;
     let last_price = ticker.into_result()?.first().unwrap().last.parse::<i64>()?;
     let mut handles = vec![];
     for &side in &[Side::Buy, Side::Sell] {

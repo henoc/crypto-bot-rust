@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use anyhow::{bail};
 use hyper::{Method, HeaderMap};
 use serde::{Deserialize, Serialize};
@@ -7,7 +5,7 @@ use serde_json::{Value};
 
 use crate::{symbol::Symbol, order_types::{Side, OrderType}, error_types::BotError};
 
-use super::{method::{make_header, get, post}, credentials::ApiCredentials, auth::gmo_coin_auth};
+use super::{method::{make_header, get, post, ToQuery}, credentials::ApiCredentials, auth::gmo_coin_auth};
 
 #[derive(Debug, Clone)]
 pub struct GmoClient {
@@ -35,18 +33,18 @@ impl GmoClient {
         Ok(make_header(gmo_coin_auth(method, path, body, api_credentials)?))
     }
 
-    pub async fn get_public<T: serde::de::DeserializeOwned>(
+    pub async fn get_public<S: ToQuery, T: serde::de::DeserializeOwned>(
         &self,
         path: &str,
-        query: Option<&HashMap<String, String>>,
+        query: S,
     ) -> anyhow::Result<T> {
         get(&self.client, &self.public_endpoint, path, HeaderMap::new(), query).await
     }
 
-    pub async fn get_private<T: serde::de::DeserializeOwned>(
+    pub async fn get_private<S: ToQuery, T: serde::de::DeserializeOwned>(
         &self,
         path: &str,
-        query: Option<&HashMap<String, String>>,
+        query: S,
     ) -> anyhow::Result<T> {
         get(&self.client, &self.private_endpoint, path, self.make_header::<Value>(Method::GET, path, None)?, query).await
     }
@@ -128,16 +126,18 @@ pub struct CreateOrderRequest {
 
 #[tokio::test]
 async fn test_gmo_client() {
+    use super::method::EmptyQuery;
     let gmo = GmoClient::new(None);
-    let res: Value = gmo.get_public("/v1/status", None).await.unwrap();
+    let res: Value = gmo.get_public("/v1/status", EmptyQuery).await.unwrap();
     assert_eq!(res["data"]["status"], "OPEN");
 }
 
 #[tokio::test]
 async fn test_gmo_client_account_assets() {
     use super::credentials::CREDENTIALS;
+    use super::method::EmptyQuery;
     let gmo = GmoClient::new(Some(CREDENTIALS.gmo.clone()));
-    let res: GmoClientResponse<AccountAssets> = gmo.get_private("/v1/account/assets", None).await.unwrap();
+    let res: GmoClientResponse<AccountAssets> = gmo.get_private("/v1/account/assets", EmptyQuery).await.unwrap();
     println!("{:?}", res);
     println!("{:?}", res.into_result());
 }

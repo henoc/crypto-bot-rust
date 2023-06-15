@@ -3,7 +3,7 @@ use std::time::Duration;
 use anyhow::{Context, anyhow};
 use clap::Parser;
 use clokwerk::AsyncScheduler;
-use config::Strategy;
+use config::{Strategy, CrawlerConfig};
 use log::LevelFilter;
 
 mod symbol;
@@ -14,6 +14,7 @@ pub mod error_types;
 pub mod strategy;
 mod config;
 mod logger;
+mod utils;
 
 #[derive(Parser)]
 struct Args {
@@ -35,10 +36,11 @@ async fn main() -> anyhow::Result<()> {
     let strategy = config.get(&args.name).context(anyhow!("{} is not found in config", args.name))?;
     match strategy {
         Strategy::Shannon(strategy_config) => {
-            let mut scheduler = AsyncScheduler::new();
-            strategy::shannon_gmo::start_shannon_gmo(&mut scheduler, strategy_config);
-            run_forever(scheduler).await;
-        }
+            strategy::shannon_gmo::start_shannon_gmo(strategy_config).await;
+        },
+        Strategy::Crawler(strategy_config) => {
+            strategy::crawler_coincheck::start_crawler_coincheck().await;
+        },
     }
     Ok(())
 }

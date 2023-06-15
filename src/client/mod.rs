@@ -1,5 +1,7 @@
 pub mod method;
 pub mod auth;
 pub mod gmo;
+pub mod coincheck;
 pub mod credentials;
 pub mod mail;
+pub mod types;

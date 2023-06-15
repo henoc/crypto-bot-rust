@@ -5,18 +5,15 @@ use reqwest::{self, Url};
 
 
 
-pub async fn get<T: serde::de::DeserializeOwned>(
+pub async fn get<S: ToQuery, T: serde::de::DeserializeOwned>(
     client: &reqwest::Client,
     endpoint: &str,
     path: &str,
     header: HeaderMap,
-    query: Option<&HashMap<String, String>>,
+    query: S,
 ) -> anyhow::Result<T> {
     let url_str = format!("{}{}", endpoint, path);
-    let url = match query {
-        Some(q) => Url::parse_with_params(&url_str, q)?,
-        None => Url::parse(&url_str)?,
-    };
+    let url = Url::parse_with_params(&url_str, query.to_query())?;
     client.get(url)
         .headers(header)
         .send()
@@ -55,3 +52,22 @@ pub fn make_header(auth: HashMap<String, String>) -> reqwest::header::HeaderMap 
     }
     headers
 }
+
+pub trait ToQuery {
+    fn to_query(&self) -> HashMap<String, String>;
+}
+
+impl ToQuery for HashMap<String, String> {
+    fn to_query(&self) -> HashMap<String, String> {
+        self.clone()
+    }
+}
+
+pub struct EmptyQuery;
+
+impl ToQuery for EmptyQuery {
+    fn to_query(&self) -> HashMap<String, String> {
+        HashMap::new()
+    }
+}
+
