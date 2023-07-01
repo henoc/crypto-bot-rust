@@ -3,7 +3,7 @@ use std::fmt::Display;
 use easy_ext::ext;
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Hash, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum Exchange {
     Bitflyer,
@@ -24,7 +24,7 @@ impl Display for Exchange {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Hash, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum SymbolType {
     Perp,
@@ -43,21 +43,39 @@ impl Display for SymbolType {
     }
 }
 
-#[derive(Deserialize, Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum Currency {
+    BTC,
+    JPY
+}
+
+impl Currency {
+    pub fn to_string(&self) -> String {
+        serde_json::to_string(&self).unwrap().replace("\"", "")
+    }
+}
+
+impl Display for Currency {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
+#[derive(Deserialize, Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct Symbol {
-    pub base: String,
-    pub quote: String,
-    pub settlement: String,
+    pub base: Currency,
+    pub quote: Currency,
+    pub settlement: Currency,
     pub r#type: SymbolType,
     pub exc: Exchange,
 }
 
 impl Symbol {
-    pub fn new(base: &str, quote: &str, r#type: SymbolType, exc: Exchange) -> Self {
+    pub fn new(base: Currency, quote: Currency, r#type: SymbolType, exc: Exchange) -> Self {
         Self {
-            base: base.to_string(),
-            quote: quote.to_string(),
-            settlement: quote.to_string(),
+            base,
+            quote,
+            settlement: quote,
             r#type: r#type,
             exc,
         }
@@ -69,7 +87,7 @@ impl Symbol {
                 SymbolType::Perp => format!("{}_{}", self.base, self.quote),
                 SymbolType::Spot => format!("{}", self.base),
             },
-            Exchange::Coincheck => format!("{}_{}", self.base.to_lowercase(), self.quote.to_lowercase()),
+            Exchange::Coincheck => format!("{}_{}", self.base.to_string().to_lowercase(), self.quote.to_string().to_lowercase()),
             Exchange::Binance => format!("{}{}", self.base, self.quote),
             _ => panic!("not implemented"),
         }

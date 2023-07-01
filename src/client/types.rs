@@ -1,7 +1,8 @@
 use chrono::{DateTime, Utc, Duration};
-use polars::{prelude::{DataFrame, NamedFrom, ChunkedArray, TimeUnit, IntoLazy}, series::{Series, IntoSeries}, time::{PolarsUpsample}, lazy::dsl::{col, lit}};
+use polars::{prelude::{DataFrame, NamedFrom, ChunkedArray, TimeUnit, IntoLazy, TakeRandom}, series::{Series, IntoSeries}, time::{PolarsUpsample}, lazy::dsl::{col, lit}};
+use serde_json::{Value, json};
 
-use crate::utils::{dataframe::chrono_dt_to_series_ms, time::{KLinesTimeUnit, datetime_utc_from_timestamp}};
+use crate::{utils::{dataframe::chrono_dt_to_series_ms, time::{KLinesTimeUnit, datetime_utc_from_timestamp, UnixTimeMs, format_time_naive}}, symbol::Symbol, order_types::Side};
 
 pub struct KLines {
     pub df: DataFrame
@@ -70,6 +71,12 @@ impl KLines {
         })
     }
 
+    pub fn sort(&mut self) -> anyhow::Result<()> {
+        self.df = self.df.sort(vec!["opentime"], false)?;
+        Ok(())
+    }
+
+    /// indexを補完し、Noneの行を埋める
     pub fn reindex(&mut self, until: DateTime<Utc>, timeframe: Duration) -> anyhow::Result<()> {
         let last_opentime = until - timeframe;
         let last_df = DataFrame::new(vec![
@@ -89,6 +96,62 @@ impl KLines {
             col("low").fill_null(col("close")),
         ]).drop_nulls(None).collect()?;
         Ok(())
+    }
+
+    /// [since, until)の範囲のデータを取得する
+    pub fn filter(&self, since: Option<DateTime<Utc>>, until: Option<DateTime<Utc>>) -> anyhow::Result<KLines> {
+        let lazy_df = self.df.clone().lazy();
+        let lazy_df = match since {
+            Some(since) => lazy_df.filter(col("opentime").gt_eq(lit(since.naive_utc()))),
+            None => lazy_df
+        };
+        let lazy_df = match until {
+            Some(until) => lazy_df.filter(col("opentime").lt(lit(until.naive_utc()))),
+            None => lazy_df
+        };
+        Ok(KLines { df: lazy_df.collect()? })
+    }
+
+    pub fn to_json(&self) -> anyhow::Result<Value> {
+        let mut ret = vec![];
+        let opentime = self.df.column("opentime")?.datetime()?.as_datetime_iter();
+        let open = self.df.column("open")?.f64()?;
+        let high = self.df.column("high")?.f64()?;
+        let low = self.df.column("low")?.f64()?;
+        let close = self.df.column("close")?.f64()?;
+        let volume = self.df.column("volume")?.f64()?;
+        for (i, t) in opentime.enumerate() {
+            ret.push(json!({
+                "opentime": t.map(|t| format_time_naive(t)),
+                "open": open.get(i),
+                "high": high.get(i),
+                "low": low.get(i),
+                "close": close.get(i),
+                "volume": volume.get(i),
+            }));
+        }
+        Ok(Value::Array(ret))
+    }
+}
+
+#[derive(Clone)]
+pub struct TradeRecord {
+    pub symbol: Symbol,
+    pub timestamp: UnixTimeMs,
+    pub price: f64,
+    pub amount: f64,
+    pub side: Side
+}
+
+impl TradeRecord {
+    pub fn new(symbol: Symbol, timestamp: UnixTimeMs, price: f64, amount: f64, side: Side) -> TradeRecord {
+        TradeRecord {
+            symbol,
+            timestamp,
+            price,
+            amount,
+            side
+        }
     }
 }
 
@@ -124,4 +187,6 @@ fn test_klines() {
     let until = datetime_utc_from_timestamp(1686122100, KLinesTimeUnit::Second);
     klines.reindex(until, Duration::seconds(60)).unwrap();
     println!("{:?}", klines.df);
+
+    println!("{:?}", klines.filter(Some(datetime_utc_from_timestamp(1686121980,KLinesTimeUnit::Second)), Some(datetime_utc_from_timestamp(1686122100,KLinesTimeUnit::Second))).unwrap().df);
 }

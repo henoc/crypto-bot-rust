@@ -3,7 +3,7 @@ use hyper::{Method, HeaderMap};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value};
 
-use crate::{symbol::Symbol, order_types::{Side, OrderType}, error_types::BotError};
+use crate::{symbol::{Symbol, Currency}, order_types::{Side, OrderType}, error_types::BotError};
 
 use super::{method::{make_header, get, post, ToQuery}, credentials::ApiCredentials, auth::gmo_coin_auth};
 
@@ -146,9 +146,10 @@ async fn test_gmo_client_account_assets() {
 async fn test_gmo_client_order() {
     use crate::symbol::SymbolType;
     use crate::symbol::Exchange;
+    use crate::symbol::Currency;
     use super::credentials::CREDENTIALS;
     let gmo = GmoClient::new(Some(CREDENTIALS.gmo.clone()));
-    let symbol = Symbol::new("BTC", "JPY", SymbolType::Spot, Exchange::Gmo);
+    let symbol = Symbol::new(Currency::BTC, Currency::JPY, SymbolType::Spot, Exchange::Gmo);
     let res: Value = gmo.post("/v1/order", &CreateOrderRequest {
         symbol,
         side: Side::Buy,

@@ -5,6 +5,7 @@ use clap::Parser;
 use clokwerk::AsyncScheduler;
 use config::{Strategy, CrawlerConfig};
 use log::LevelFilter;
+use symbol::Exchange;
 
 mod symbol;
 mod data_structure;
@@ -39,7 +40,14 @@ async fn main() -> anyhow::Result<()> {
             strategy::shannon_gmo::start_shannon_gmo(strategy_config).await;
         },
         Strategy::Crawler(strategy_config) => {
-            strategy::crawler_coincheck::start_crawler_coincheck().await;
+            match strategy_config.exc {
+                Exchange::Coincheck => {
+                    strategy::crawler_coincheck::start_crawler_coincheck().await;
+                },
+                _ => {
+                    anyhow::bail!("{} is not supported", strategy_config.exc);
+                }
+            }
         },
     }
     Ok(())

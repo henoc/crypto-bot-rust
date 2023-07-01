@@ -1,4 +1,5 @@
 use anyhow::Context;
+use chrono::Duration;
 use log::info;
 use maplit::hashmap;
 use once_cell::sync::OnceCell;
@@ -47,7 +48,7 @@ pub async fn start_shannon_gmo(config: &ShannonConfig) {
         _ = spawn(async move {
             let symbol = symbol_ref1.clone();
             loop {
-                sleep_until_next(ScheduleExpr::EveryMinute {q: 5, r: 0, second: 0}).await;
+                sleep_until_next(ScheduleExpr::new(Duration::minutes(5), Duration::minutes(0))).await;
                 update_assets(&client, &symbol).await.pipe(capture_result(&symbol));
                 cancel_all_orders(&client, &symbol).await.pipe(capture_result(&symbol));
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -57,7 +58,7 @@ pub async fn start_shannon_gmo(config: &ShannonConfig) {
         _ = spawn(async move {
             let symbol = symbol_ref2.clone();
             loop {
-                sleep_until_next(ScheduleExpr::EveryHour {q: 1, r: 0, minute: 58, second: 0}).await;
+                sleep_until_next(ScheduleExpr::new(Duration::hours(1), Duration::minutes(58))).await;
                 report(&symbol).await.pipe(capture_result(&symbol));
             }
         }) => {}
@@ -97,9 +98,9 @@ async fn update_assets(client: &GmoClient, symbol: &Symbol) -> Result<()> {
     info!("update_assets");
     let assets: GmoClientResponse<AccountAssets> = client.get_private("/v1/account/assets", EmptyQuery).await?;
     for asset in assets.into_result()? {
-        if asset.symbol == symbol.base {
+        if asset.symbol == symbol.base.to_string() {
             BALANCE.get().context("BALANCE failed")?.write().base = asset.amount.parse::<f64>()?.pipe(|x| FloatExp::from_f64(x, symbol.amount_precision()));
-        } else if asset.symbol == symbol.quote {
+        } else if asset.symbol == symbol.quote.to_string() {
             BALANCE.get().context("BALANCE failed")?.write().quote = asset.amount.parse::<i64>()?.pipe(|x| FloatExp::new(x, 0));
         }
     }

@@ -1,2 +1,4 @@
 /target
 config.yaml
+.status_*
+/market

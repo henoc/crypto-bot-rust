@@ -9,3 +9,6 @@ shannon_gmo:
   virtual_amount:
     base: 0.1143      # 0.0381*3
     quote: 425124     # 141708*3
+crawler_coincheck:
+  strategy: crawler
+  exc: coincheck

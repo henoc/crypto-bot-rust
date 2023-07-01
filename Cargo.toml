@@ -30,6 +30,7 @@ tokio = { version = "1.27.0", features = ["full"] }
 tokio-tungstenite = { version = "0.18.0", features = ["rustls-tls-webpki-roots"] }
 url = "2.3.1"
 polars = { version = "0.28.0", features = ["dtype-datetime", "timezones", "parquet", "polars-io", "polars-lazy", "lazy", "temporal"] }
+futures = { version = "0.3.28", default-features = true }
 
 [profile.dev]
 panic = "abort"
