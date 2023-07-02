@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc, Duration};
 use polars::{prelude::{DataFrame, NamedFrom, ChunkedArray, TimeUnit, IntoLazy, TakeRandom}, series::{Series, IntoSeries}, time::{PolarsUpsample}, lazy::dsl::{col, lit}};
+use serde::{Serialize, Serializer};
 use serde_json::{Value, json};
 
 use crate::{utils::{dataframe::chrono_dt_to_series_ms, time::{KLinesTimeUnit, datetime_utc_from_timestamp, UnixTimeMs, format_time_naive}}, symbol::Symbol, order_types::Side};
@@ -134,7 +135,7 @@ impl KLines {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TradeRecord {
     pub symbol: Symbol,
     pub timestamp: UnixTimeMs,
@@ -152,6 +153,20 @@ impl TradeRecord {
             amount,
             side
         }
+    }
+
+    pub fn mpack(self)->MpackTradeRecord {
+        MpackTradeRecord(self)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MpackTradeRecord(pub TradeRecord);
+
+impl Serialize for MpackTradeRecord {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+        let tpl = (self.0.price, self.0.amount, self.0.timestamp, self.0.side == Side::Sell);
+        tpl.serialize(serializer)
     }
 }
 

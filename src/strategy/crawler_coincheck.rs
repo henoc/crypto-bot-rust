@@ -1,9 +1,9 @@
+use std::thread::sleep;
+
 use anyhow::Context;
 use chrono::{Duration, NaiveDateTime, DateTime, Utc};
-use clokwerk::{AsyncScheduler, TimeUnits};
 use futures::{StreamExt, SinkExt};
 use log::info;
-use maplit::hashmap;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use serde_json::{Value, json};
@@ -12,15 +12,23 @@ use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::{time::{sleep_until_next, ScheduleExpr, datetime_utc_from_timestamp, KLinesTimeUnit, parse_format_time_utc, format_time_utc, self, now_floor_time}, status_repository::StatusRepository, record_writer::RecordWriter, strategy_utils::capture_result}, client::{coincheck::{CoincheckClient, KLineRequest, KLineResponse}, types::{KLines}}};
+use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::{time::{sleep_until_next, ScheduleExpr, datetime_utc_from_timestamp, KLinesTimeUnit, parse_format_time_utc, format_time_utc, self, now_floor_time}, status_repository::StatusRepository, record_writer::{SerialRecordWriter, SerializerType}, strategy_utils::capture_result}, client::{coincheck::{CoincheckClient, KLineRequest, KLineResponse, WsTradesResponse}, types::{KLines, MpackTradeRecord}}};
 
 static STATUS: OnceCell<RwLock<StatusRepository>> = OnceCell::new();
+static TRADE_RECORD_WRITER: OnceCell<RwLock<SerialRecordWriter<MpackTradeRecord>>> = OnceCell::new();
 
 pub async fn start_crawler_coincheck() {
 
     STATUS.set(RwLock::new(StatusRepository::new("crawler"))).unwrap();
     let client = CoincheckClient::new();
     let symbol = Symbol::new(Currency::BTC, Currency::JPY, SymbolType::Spot, Exchange::Coincheck);
+
+    TRADE_RECORD_WRITER.set(RwLock::new(SerialRecordWriter::<MpackTradeRecord>::new(
+        "marketTrades",
+        &symbol,
+        "msgpack",
+        Box::new(trades_time_fn)
+    ))).unwrap();
 
     select! {
         _ = spawn(async move {
@@ -29,10 +37,21 @@ pub async fn start_crawler_coincheck() {
                 fetch_kline(symbol, &client).await.pipe(capture_result(&symbol));
             }
         }) => {}
+        // tradesのsubscribe
+        _ = spawn(async move {
+            subscribe_trades(symbol).await.pipe(capture_result(&symbol));
+        }) => {}
+        // tradesのファイル出力
+        _ = spawn(async move {
+            loop {
+                sleep_until_next(ScheduleExpr::new(Duration::seconds(5), Duration::seconds(0))).await;
+                flush_trade_records().pipe(capture_result(&symbol));
+            }
+        }) => {}
     }
 }
 
-fn time_fn(value: &Value) -> Option<DateTime<Utc>> {
+fn kline_time_fn(value: &Value) -> Option<DateTime<Utc>> {
     if let Some(s) = value["opentime"].as_str() {
         let dt = parse_format_time_utc(s).ok()?;
         Some(dt)
@@ -60,12 +79,12 @@ async fn fetch_kline(symbol: Symbol, client: &CoincheckClient) -> anyhow::Result
 
     // klinesの書き込み
     let json_klines = klines.to_json()?;
-    RecordWriter::new(
+    SerialRecordWriter::new(
         "klines",
         &symbol,
         "log",
-        Box::new(time_fn)
-    ).write(&json_klines)?;
+        Box::new(kline_time_fn)
+    ).write_json(&json_klines)?;
 
     // last_timeを更新
     STATUS.get().context("STATUS is not initialized")?.write().update(symbol, json!({
@@ -73,6 +92,11 @@ async fn fetch_kline(symbol: Symbol, client: &CoincheckClient) -> anyhow::Result
             .context("opentime is not string")?
     }))?;
     Ok(())
+}
+
+fn trades_time_fn(mpack_trade_record: &MpackTradeRecord) -> Option<DateTime<Utc>> {
+    let dt = datetime_utc_from_timestamp(mpack_trade_record.0.timestamp, KLinesTimeUnit::MilliSecond);
+    Some(dt)
 }
 
 async fn subscribe_trades(symbol: Symbol) -> anyhow::Result<()> {
@@ -90,13 +114,29 @@ async fn subscribe_trades(symbol: Symbol) -> anyhow::Result<()> {
     write.send(Message::Text(op.to_string())).await?;
 
     while let Some(msg) = read.next().await {
-        let msg = match msg? {
-            Message::Text(text) => text,
-            _ => continue,
-        };
-        
+        match handle_trade_msg( msg?) {
+            Ok(_) => (),
+            _ => continue
+        }
     }
     Ok(())
+}
+
+fn handle_trade_msg(msg: Message) -> anyhow::Result<()> {
+    let msg = msg.to_text()?;
+    let parsed = serde_json::from_str(msg)?;
+    let trades = WsTradesResponse(parsed).to_trade_records()?;
+
+    // msgpackで出力する用
+    TRADE_RECORD_WRITER.get().context("TRADE_RECORD_WRITER is not initialized")?
+        .write().push(trades.iter().cloned().map(|x| x.mpack()).collect());
+    Ok(())
+}
+
+/// msgpackで出力
+fn flush_trade_records() -> anyhow::Result<()> {
+    TRADE_RECORD_WRITER.get().context("TRADE_RECORD_WRITER is not initialized")?
+        .write().flush(SerializerType::Msgpack)
 }
 
 #[test]
@@ -104,6 +144,6 @@ fn test_timefn() {
     let value = json!({
         "close": 4406641.5, "high": 4406641.5, "low": 4402941.0, "open": 4402941.0, "opentime": "2023-07-01T11:44:00+00:00", "volume": 0.0
     });
-    let dt = time_fn(&value).unwrap();
+    let dt = kline_time_fn(&value).unwrap();
     assert_eq!(format_time_utc(dt), "2023-07-01T11:44:00+00:00");
 }

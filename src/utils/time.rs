@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc, TimeZone, NaiveDateTime, NaiveDate, FixedOffset, Duration};
+use chrono::{DateTime, Utc, TimeZone, NaiveDateTime, FixedOffset, Duration};
 
 pub struct ScheduleExpr {
     q: Duration,
@@ -85,6 +85,7 @@ pub fn parse_format_time_utc(time: &str) -> anyhow::Result<DateTime<Utc>> {
 
 pub type UnixTimeMs = i64;
 
+#[allow(non_snake_case)]
 pub fn JST() -> FixedOffset {
     FixedOffset::east_opt(9 * 60 * 60).unwrap()
 }

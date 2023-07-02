@@ -1,8 +1,5 @@
-use std::time::Duration;
-
 use anyhow::{Context, anyhow};
 use clap::Parser;
-use clokwerk::AsyncScheduler;
 use config::{Strategy, CrawlerConfig};
 use log::LevelFilter;
 use symbol::Exchange;
@@ -51,11 +48,4 @@ async fn main() -> anyhow::Result<()> {
         },
     }
     Ok(())
-}
-
-async fn run_forever(mut scheduler: AsyncScheduler) {
-    loop {
-        tokio::spawn(scheduler.run_pending());
-        tokio::time::sleep(Duration::from_millis(250)).await;
-    }
 }
