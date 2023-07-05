@@ -5,3 +5,4 @@ pub mod coincheck;
 pub mod credentials;
 pub mod mail;
 pub mod types;
+pub mod bitflyer;

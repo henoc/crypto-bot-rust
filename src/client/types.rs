@@ -170,6 +170,11 @@ impl Serialize for MpackTradeRecord {
     }
 }
 
+pub fn trades_time_fn(mpack_trade_record: &MpackTradeRecord) -> Option<DateTime<Utc>> {
+    let dt = datetime_utc_from_timestamp(mpack_trade_record.0.timestamp, KLinesTimeUnit::MilliSecond);
+    Some(dt)
+}
+
 #[test]
 fn test_klines() {
     let mut ohlcvs: Vec<Vec<Option<f64>>> = vec![];

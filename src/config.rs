@@ -34,5 +34,12 @@ pub fn load_config() -> Result<Config> {
 
 #[derive(Debug, Deserialize)]
 pub struct CrawlerConfig {
-    pub exc: Exchange,
+    pub symbol: Symbol,
+    pub kline_builder: Vec<KLineBuilderConfig>
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct KLineBuilderConfig {
+    pub timeframe_sec: i64,
+    pub len: usize,
 }

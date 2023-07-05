@@ -18,6 +18,8 @@ mod utils;
 struct Args {
     #[clap(short, long)]
     name: String,
+    #[clap(short, long)]
+    check: bool,
 }
 
 static LOGGER: logger::BotLogger = logger::BotLogger;
@@ -37,12 +39,15 @@ async fn main() -> anyhow::Result<()> {
             strategy::shannon_gmo::start_shannon_gmo(strategy_config).await;
         },
         Strategy::Crawler(strategy_config) => {
-            match strategy_config.exc {
+            match strategy_config.symbol.exc {
                 Exchange::Coincheck => {
                     strategy::crawler_coincheck::start_crawler_coincheck().await;
                 },
+                Exchange::Bitflyer => {
+                    strategy::crawler_bitflyer::start_crawler_bitflyer(strategy_config, args.check).await;
+                },
                 _ => {
-                    anyhow::bail!("{} is not supported", strategy_config.exc);
+                    anyhow::bail!("{} is not supported", strategy_config.symbol.exc);
                 }
             }
         },

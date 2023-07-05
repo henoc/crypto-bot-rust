@@ -11,6 +11,7 @@ impl ScheduleExpr {
     }
 }
 
+/// 呼び出し間隔がschedule以上のときにwarnを出す機能をつけたい
 pub async fn sleep_until_next(schedule: ScheduleExpr) {
     let curr_ms = chrono::Utc::now().timestamp_millis();
     let next_ms = next_sleep_duration_ms(curr_ms, schedule);

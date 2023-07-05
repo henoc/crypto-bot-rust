@@ -11,4 +11,21 @@ shannon_gmo:
     quote: 425124     # 141708*3
 crawler_coincheck:
   strategy: crawler
-  exc: coincheck
+  symbol:
+    base: BTC
+    quote: JPY
+    settlement: JPY
+    type: spot
+    exc: coincheck
+  kline_builder: []
+crawler_bitflyer:
+  strategy: crawler
+  symbol:
+    base: BTC
+    quote: JPY
+    settlement: JPY
+    type: perp
+    exc: bitflyer
+  kline_builder:
+    - timeframe_sec: 150
+      len: 300

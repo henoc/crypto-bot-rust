@@ -22,3 +22,10 @@ sudo hostnamectl set-hostname s3
 # verboseをつけると失敗箇所がわかりやすい
 cross build --target x86_64-unknown-linux-gnu --verbose --release
 ```
+
+## bot
+
+```bash
+# ステータスファイルの確認など
+sudo ./bot --name crawler_bitflyer --check
+```

@@ -89,7 +89,10 @@ impl Symbol {
             },
             Exchange::Coincheck => format!("{}_{}", self.base.to_string().to_lowercase(), self.quote.to_string().to_lowercase()),
             Exchange::Binance => format!("{}{}", self.base, self.quote),
-            _ => panic!("not implemented"),
+            Exchange::Bitflyer => match self.r#type {
+                SymbolType::Perp => format!("FX_{}_{}", self.base, self.quote),
+                SymbolType::Spot => format!("{}_{}", self.base, self.quote),
+            }
         }
     }
 

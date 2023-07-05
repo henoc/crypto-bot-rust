@@ -1,6 +1,6 @@
 use std::thread::sleep;
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use chrono::{Duration, NaiveDateTime, DateTime, Utc};
 use futures::{StreamExt, SinkExt};
 use log::info;
@@ -12,10 +12,10 @@ use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::{time::{sleep_until_next, ScheduleExpr, datetime_utc_from_timestamp, KLinesTimeUnit, parse_format_time_utc, format_time_utc, self, now_floor_time}, status_repository::StatusRepository, record_writer::{SerialRecordWriter, SerializerType}, strategy_utils::capture_result}, client::{coincheck::{CoincheckClient, KLineRequest, KLineResponse, WsTradesResponse}, types::{KLines, MpackTradeRecord}}};
+use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::{time::{sleep_until_next, ScheduleExpr, datetime_utc_from_timestamp, KLinesTimeUnit, parse_format_time_utc, format_time_utc, self, now_floor_time}, status_repository::StatusRepository, record_writer::{SerialRecordWriter, SerializerType}, strategy_utils::{capture_result, start_send_ping}}, client::{coincheck::{CoincheckClient, KLineRequest, KLineResponse, WsTradesResponse}, types::{KLines, MpackTradeRecord, trades_time_fn}}};
 
 static STATUS: OnceCell<RwLock<StatusRepository>> = OnceCell::new();
-static TRADE_RECORD_WRITER: OnceCell<RwLock<SerialRecordWriter<MpackTradeRecord>>> = OnceCell::new();
+static TRADE_RECORD: OnceCell<RwLock<Vec<MpackTradeRecord>>> = OnceCell::new();
 
 pub async fn start_crawler_coincheck() {
 
@@ -23,14 +23,10 @@ pub async fn start_crawler_coincheck() {
     let client = CoincheckClient::new();
     let symbol = Symbol::new(Currency::BTC, Currency::JPY, SymbolType::Spot, Exchange::Coincheck);
 
-    TRADE_RECORD_WRITER.set(RwLock::new(SerialRecordWriter::<MpackTradeRecord>::new(
-        "marketTrades",
-        &symbol,
-        "msgpack",
-        Box::new(trades_time_fn)
-    ))).unwrap();
+    TRADE_RECORD.set(RwLock::new(Vec::new())).unwrap();
 
     select! {
+        // 1min klineの保存
         _ = spawn(async move {
             loop {
                 sleep_until_next(ScheduleExpr::new(Duration::hours(1), Duration::minutes(0))).await;
@@ -45,7 +41,7 @@ pub async fn start_crawler_coincheck() {
         _ = spawn(async move {
             loop {
                 sleep_until_next(ScheduleExpr::new(Duration::seconds(5), Duration::seconds(0))).await;
-                flush_trade_records().pipe(capture_result(&symbol));
+                flush_trade_records(symbol).pipe(capture_result(&symbol));
             }
         }) => {}
     }
@@ -63,12 +59,12 @@ fn kline_time_fn(value: &Value) -> Option<DateTime<Utc>> {
 async fn fetch_kline(symbol: Symbol, client: &CoincheckClient) -> anyhow::Result<()> {
     let timeframe = Duration::minutes(1);
     let limit = 300;
-    let result: Vec<Vec<Option<f64>>> = client.get("/api/charts/candle_rates", KLineRequest {
+    let result: KLineResponse = client.get("/api/charts/candle_rates", KLineRequest {
         symbol: symbol.clone(),
         timeframe: timeframe.clone(),
         limit,
     }).await?;
-    let mut klines = KLineResponse(result).to_klines(now_floor_time(timeframe, 0), timeframe)?;
+    let mut klines = result.to_klines(now_floor_time(timeframe, 0), timeframe)?;
 
     // last_timeの読み込み
     let obj = STATUS.get().context("STATUS is not initialized")?.write().get(&symbol, None)?;
@@ -94,11 +90,6 @@ async fn fetch_kline(symbol: Symbol, client: &CoincheckClient) -> anyhow::Result
     Ok(())
 }
 
-fn trades_time_fn(mpack_trade_record: &MpackTradeRecord) -> Option<DateTime<Utc>> {
-    let dt = datetime_utc_from_timestamp(mpack_trade_record.0.timestamp, KLinesTimeUnit::MilliSecond);
-    Some(dt)
-}
-
 async fn subscribe_trades(symbol: Symbol) -> anyhow::Result<()> {
     let (socket, _) =
         connect_async(Url::parse("wss://ws-api.coincheck.com/").unwrap()).await?;
@@ -113,10 +104,12 @@ async fn subscribe_trades(symbol: Symbol) -> anyhow::Result<()> {
 
     write.send(Message::Text(op.to_string())).await?;
 
+    start_send_ping(symbol, write).await;
+
     while let Some(msg) = read.next().await {
-        match handle_trade_msg( msg?) {
+        match handle_trade_msg(msg?) {
             Ok(_) => (),
-            _ => continue
+            Err(_) => continue,
         }
     }
     Ok(())
@@ -124,19 +117,26 @@ async fn subscribe_trades(symbol: Symbol) -> anyhow::Result<()> {
 
 fn handle_trade_msg(msg: Message) -> anyhow::Result<()> {
     let msg = msg.to_text()?;
-    let parsed = serde_json::from_str(msg)?;
-    let trades = WsTradesResponse(parsed).to_trade_records()?;
+    let parsed = serde_json::from_str::<WsTradesResponse>(msg)?;
+    let trades = parsed.to_trade_records()?;
 
     // msgpackで出力する用
-    TRADE_RECORD_WRITER.get().context("TRADE_RECORD_WRITER is not initialized")?
-        .write().push(trades.iter().cloned().map(|x| x.mpack()).collect());
+    TRADE_RECORD.get().context("TRADE_RECORD is not initialized")?
+        .write().extend(trades.iter().cloned().map(|x| x.mpack()));
     Ok(())
 }
 
 /// msgpackで出力
-fn flush_trade_records() -> anyhow::Result<()> {
-    TRADE_RECORD_WRITER.get().context("TRADE_RECORD_WRITER is not initialized")?
-        .write().flush(SerializerType::Msgpack)
+fn flush_trade_records(symbol: Symbol) -> anyhow::Result<()> {
+    let records = TRADE_RECORD.get().context("TRADE_RECORD is not initialized")?
+        .write().drain(..).collect::<Vec<_>>();
+    // info!("flush_trade_records: {}", records.len());
+    SerialRecordWriter::<MpackTradeRecord>::new(
+        "marketTrades",
+        &symbol,
+        "msgpack",
+        Box::new(trades_time_fn)
+    ).write_msgpack(&records)
 }
 
 #[test]

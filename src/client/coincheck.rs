@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use chrono::{Duration, DateTime, Utc};
 use hyper::HeaderMap;
 use maplit::hashmap;
+use serde::{Deserialize, Deserializer};
 
 use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::time::KLinesTimeUnit, order_types::Side};
 
@@ -48,8 +49,18 @@ impl ToQuery for KLineRequest {
     }
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone)]
 pub struct KLineResponse(pub Vec<Vec<Option<f64>>>);
+
+impl<'de> Deserialize<'de> for KLineResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = Vec::<Vec<Option<f64>>>::deserialize(deserializer)?;
+        Ok(KLineResponse(v))
+    }
+}
 
 impl KLineResponse {
     ///
@@ -67,6 +78,16 @@ impl KLineResponse {
 //  ['1687419859', '246596087', 'btc_jpy', '4262616.0', '0.005', 'sell', '5634315383', '5634315362']]
 
 pub struct WsTradesResponse(pub Vec<Vec<String>>);
+
+impl<'de> Deserialize<'de> for WsTradesResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    { 
+        let v = Vec::<Vec<String>>::deserialize(deserializer)?;
+        Ok(WsTradesResponse(v))
+    }
+}
 
 impl WsTradesResponse {
     pub fn to_trade_records(&self,) -> anyhow::Result<Vec<TradeRecord>> {

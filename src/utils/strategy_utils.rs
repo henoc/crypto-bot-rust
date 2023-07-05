@@ -1,4 +1,9 @@
+use anyhow::anyhow;
+use futures::{stream::SplitSink, SinkExt};
 use log::info;
+use tap::Pipe;
+use tokio::{spawn, net::TcpStream};
+use tokio_tungstenite::{WebSocketStream, MaybeTlsStream, tungstenite::Message};
 
 use crate::{symbol::Symbol, client::mail::send_mail, error_types::BotError};
 
@@ -15,4 +20,14 @@ pub fn capture_result(symbol: &Symbol) -> impl Fn(anyhow::Result<()>) + '_ {
         }
     };
     l
+}
+
+/// aiohttpのheartbeat相当。こちらからpingを送信する。pong確認で接続検査が必要かも
+pub async fn start_send_ping(symbol: Symbol, mut write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>) {
+    spawn(async move {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+            write.send(Message::Ping(vec![])).await.map_err(|e| anyhow!(e)).pipe(capture_result(&symbol));
+        }
+    });
 }
