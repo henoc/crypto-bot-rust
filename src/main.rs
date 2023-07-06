@@ -46,6 +46,9 @@ async fn main() -> anyhow::Result<()> {
                 Exchange::Bitflyer => {
                     strategy::crawler_bitflyer::start_crawler_bitflyer(strategy_config, args.check).await;
                 },
+                Exchange::Binance => {
+                    strategy::crawler_binance::start_crawler_binance(strategy_config, args.check).await;
+                },
                 _ => {
                     anyhow::bail!("{} is not supported", strategy_config.symbol.exc);
                 }

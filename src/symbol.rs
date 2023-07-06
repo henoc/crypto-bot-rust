@@ -46,7 +46,8 @@ impl Display for SymbolType {
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Currency {
     BTC,
-    JPY
+    JPY,
+    USDT,
 }
 
 impl Currency {

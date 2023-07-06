@@ -11,7 +11,7 @@ use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{config::{KLineBuilderConfig, CrawlerConfig}, utils::{strategy_utils::{capture_result, start_send_ping}, kline_mmap::KLineMMap, time::{sleep_until_next, ScheduleExpr, KLinesTimeUnit}}, symbol::Symbol, client::{types::{MpackTradeRecord, trades_time_fn, TradeRecord, KLines}, bitflyer::{WsResponse, ExecutionItem}}};
+use crate::{config::{KLineBuilderConfig, CrawlerConfig}, utils::{strategy_utils::{capture_result, start_send_ping, show_kline_mmap, start_flush_kline_mmap}, kline_mmap::KLineMMap, time::{sleep_until_next, ScheduleExpr, KLinesTimeUnit}}, symbol::Symbol, client::{types::{MpackTradeRecord, trades_time_fn, TradeRecord, KLines}, bitflyer::{WsResponse, ExecutionItem}}};
 
 static KLINE_MMAP: OnceCell<RwLock<HashMap<Duration, KLineMMap>>> = OnceCell::new();
 
@@ -25,43 +25,17 @@ pub async fn start_crawler_bitflyer(config: &CrawlerConfig, check: bool) {
 
     // ファイルの中身を表示する
     if check {
-        show_kline_mmap(&kline_config).unwrap();
+        show_kline_mmap(&KLINE_MMAP, &kline_config).unwrap();
         return;
     }
 
-    for config in kline_config.clone() {
-        let timeframe = Duration::seconds(config.timeframe_sec);
-        spawn(async move {
-            loop {
-                sleep_until_next(ScheduleExpr::new(timeframe, Duration::seconds(0))).await;
-                flush_kline_mmap(Duration::seconds(config.timeframe_sec)).pipe(capture_result(&symbol));
-            }
-        });
-    }
+    start_flush_kline_mmap(&KLINE_MMAP, symbol, &kline_config);
 
     select! {
         _ = spawn(async move {
             subscribe_trades(symbol, &kline_config).await.pipe(capture_result(&symbol));
         }) => {}
     }
-}
-
-fn show_kline_mmap(kline_config: &Vec<KLineBuilderConfig>) -> anyhow::Result<()> {
-    for config in kline_config {
-        let timeframe = Duration::seconds(config.timeframe_sec);
-        let hmap = KLINE_MMAP.get().context("KLINE_MMAP is not initialized")?.read();
-        let mmap = hmap.get(&timeframe).unwrap();
-        let klines = KLines::new_options(&mmap.mmap_read_all()?, KLinesTimeUnit::MilliSecond)?;
-        info!("{}:", mmap.get_mmap_path());
-        info!("{:?}", klines.df);
-    }
-    Ok(())
-}
-
-fn flush_kline_mmap(timeframe: Duration) -> anyhow::Result<()> {
-    KLINE_MMAP.get().context("KLINE_MMAP is not initialized")?.write().get_mut(&timeframe).unwrap().update_mmap()?;
-    info!("Flushed kline mmap, timeframe: {:?}", timeframe);
-    Ok(())
 }
 
 async fn subscribe_trades(symbol: Symbol, kline_config: &Vec<KLineBuilderConfig>) -> anyhow::Result<()> {

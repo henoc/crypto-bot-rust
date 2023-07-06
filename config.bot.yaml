@@ -29,3 +29,25 @@ crawler_bitflyer:
   kline_builder:
     - timeframe_sec: 150
       len: 300
+crawler_bitflyer_spot:
+  strategy: crawler
+  symbol:
+    base: BTC
+    quote: JPY
+    settlement: JPY
+    type: spot
+    exc: bitflyer
+  kline_builder:
+    - timeframe_sec: 150
+      len: 300
+crawler_binance_btcusdt_spot:
+  strategy: crawler
+  symbol:
+    base: BTC
+    quote: USDT
+    settlement: USDT
+    type: spot
+    exc: binance
+  kline_builder:
+    - timeframe_sec: 150
+      len: 300

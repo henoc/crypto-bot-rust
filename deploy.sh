@@ -26,4 +26,4 @@ set -- "${POSITIONAL_ARGS[@]}" # restore positional parameters
 rsync -uvz target/x86_64-unknown-linux-gnu/release/bot "${SERVER}":~/
 rsync -uvz config.bot.yaml "${SERVER}":~/
 rsync -uvz config.yaml "${SERVER}":~/
-rsync -uvzr immortal/ "${SERVER}":~/immortal/
+rsync -uvzr --delete immortal/ "${SERVER}":~/immortal/
