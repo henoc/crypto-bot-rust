@@ -72,7 +72,7 @@ pub struct Symbol {
 }
 
 impl Symbol {
-    pub fn new(base: Currency, quote: Currency, r#type: SymbolType, exc: Exchange) -> Self {
+    pub const fn new(base: Currency, quote: Currency, r#type: SymbolType, exc: Exchange) -> Self {
         Self {
             base,
             quote,

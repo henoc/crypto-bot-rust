@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use serde::Deserialize;
+use chrono::Duration;
+use serde::{Deserialize, Deserializer};
 
-use crate::symbol::{Symbol, Exchange};
+use crate::{symbol::{Symbol}, utils::tracingmm_utils::PriceInOut};
 
 pub type Config = HashMap<String, Strategy>;
 
@@ -11,6 +12,7 @@ pub type Config = HashMap<String, Strategy>;
 #[serde(rename_all = "snake_case", tag = "strategy")]
 pub enum Strategy {
     Shannon(ShannonConfig),
+    TracingMm(TracingMMConfig),
     Crawler(CrawlerConfig),
 }
 
@@ -40,6 +42,47 @@ pub struct CrawlerConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct KLineBuilderConfig {
-    pub timeframe_sec: i64,
+    pub timeframe: Timeframe,
     pub len: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Timeframe(pub Duration);
+
+impl<'de> Deserialize<'de> for Timeframe {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // "\d+s" or "\d+m" or "\d+h"
+        let s = String::deserialize(deserializer)?;
+        let duration = match s.chars().last().unwrap() {
+            's' => Duration::seconds(s[0..s.len()-1].parse::<i64>().unwrap()),
+            'm' => Duration::minutes(s[0..s.len()-1].parse::<i64>().unwrap()),
+            'h' => Duration::hours(s[0..s.len()-1].parse::<i64>().unwrap()),
+            _ => panic!("invalid timeframe"),
+        };
+        Ok(Timeframe(duration))
+    }
+}
+
+impl Into<Duration> for Timeframe {
+    fn into(self) -> Duration {
+        self.0
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TracingMMConfig {
+    pub symbol: Symbol,
+    pub timeframe: Timeframe,
+    pub leverage: f64,
+
+    pub ref_symbol: Symbol,
+    pub atr_period: i64,
+    pub beta: PriceInOut,
+    pub gamma: PriceInOut,
+    pub losscut_rate: Option<f64>,
+    /// timeframeで何フレームか
+    pub exit_mean_frame: i32,
 }

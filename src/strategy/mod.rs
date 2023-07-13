@@ -2,3 +2,4 @@ pub mod shannon_gmo;
 pub mod crawler_coincheck;
 pub mod crawler_bitflyer;
 pub mod crawler_binance;
+pub mod tracingmm_bitflyer;

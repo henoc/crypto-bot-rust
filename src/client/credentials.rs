@@ -5,6 +5,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct Credentials {
     pub gmo: ApiCredentials,
+    pub bitflyer: ApiCredentials,
     pub mail: MailCredentials,
 }
 

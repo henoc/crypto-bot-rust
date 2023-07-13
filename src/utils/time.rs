@@ -9,6 +9,13 @@ impl ScheduleExpr {
     pub fn new(interval: Duration, rem: Duration) -> ScheduleExpr {
         ScheduleExpr {q: interval, r: rem}
     }
+
+    pub fn new_ahead(interval: Duration, ahead: Duration) -> ScheduleExpr {
+        if ahead >= interval {
+            panic!("ahead must be less than interval");
+        }
+        ScheduleExpr {q: interval, r: interval - ahead}
+    }
 }
 
 /// 呼び出し間隔がschedule以上のときにwarnを出す機能をつけたい
@@ -28,29 +35,29 @@ pub fn next_sleep_duration_ms(curr_ms: i64, schedule: ScheduleExpr) -> i64 {
     next_sec * 1000 - curr_ms
 }
 
-pub enum KLinesTimeUnit {
+pub enum UnixTimeUnit {
     Second,
     MilliSecond,
     MicroSecond,
     NanoSecond,
 }
 
-impl KLinesTimeUnit {
+impl UnixTimeUnit {
     pub fn to_ms(&self, time: i64) -> i64 {
         match self {
-            KLinesTimeUnit::Second => time * 1000,
-            KLinesTimeUnit::MilliSecond => time,
-            KLinesTimeUnit::MicroSecond => time / 1000,
-            KLinesTimeUnit::NanoSecond => time / 1000 / 1000,
+            UnixTimeUnit::Second => time * 1000,
+            UnixTimeUnit::MilliSecond => time,
+            UnixTimeUnit::MicroSecond => time / 1000,
+            UnixTimeUnit::NanoSecond => time / 1000 / 1000,
         }
     }
 
     pub fn to_ns(&self, time: i64) -> i64 {
         match self {
-            KLinesTimeUnit::Second => time * 1000 * 1000 * 1000,
-            KLinesTimeUnit::MilliSecond => time * 1000 * 1000,
-            KLinesTimeUnit::MicroSecond => time * 1000,
-            KLinesTimeUnit::NanoSecond => time,
+            UnixTimeUnit::Second => time * 1000 * 1000 * 1000,
+            UnixTimeUnit::MilliSecond => time * 1000 * 1000,
+            UnixTimeUnit::MicroSecond => time * 1000,
+            UnixTimeUnit::NanoSecond => time,
         }
     }
 }
@@ -63,7 +70,7 @@ pub fn datetime_utc(year: i32, month: u32, day: u32, hour: u32, minute: u32, sec
     Utc.with_ymd_and_hms(year, month, day, hour, minute, second).single().unwrap()
 }
 
-pub fn datetime_utc_from_timestamp(timestamp: i64, time_unit: KLinesTimeUnit) -> DateTime<Utc> {
+pub fn datetime_utc_from_timestamp(timestamp: i64, time_unit: UnixTimeUnit) -> DateTime<Utc> {
     Utc.timestamp_nanos(time_unit.to_ns(timestamp))
 }
 
@@ -96,7 +103,7 @@ pub fn floor_time(timestamp: DateTime<Utc>, timeframe: Duration, unit_delta:i64)
     let mut unix_sec = timestamp.timestamp();
     unix_sec = unix_sec / timeframe_sec * timeframe_sec;
     unix_sec += unit_delta * timeframe_sec;
-    datetime_utc_from_timestamp(unix_sec, KLinesTimeUnit::Second)
+    datetime_utc_from_timestamp(unix_sec, UnixTimeUnit::Second)
 }
 
 pub fn now_floor_time(timeframe: Duration, unit_delta:i64)-> DateTime<Utc> {

@@ -1,15 +1,14 @@
-use std::{io::{Write, Read}, fs::{OpenOptions, File}, collections::VecDeque};
+use std::{io::{Write, Read}, fs::{OpenOptions}, collections::VecDeque};
 
 use anyhow::Context;
 use chrono::{DateTime, Utc, Duration};
 use memmap::{MmapMut, MmapOptions};
-use polars::export::arrow::types::NativeType;
+use polars::{prelude::{DataFrame, ChunkedArray, TimeUnit, NamedFrom}, series::{Series, IntoSeries}};
 use rmp::Marker;
-use serde::{Deserialize, Deserializer};
 
 use crate::{symbol::Symbol, client::types::TradeRecord};
 
-use super::time::{datetime_utc_from_timestamp, KLinesTimeUnit, now_floor_time, floor_time};
+use super::time::{datetime_utc_from_timestamp, UnixTimeUnit, now_floor_time, floor_time};
 
 #[derive(Debug, Clone)]
 pub enum KLineRow {
@@ -93,6 +92,41 @@ impl KLineRow {
             ]
         }
     }
+
+    pub fn open(&self) -> Option<f64> {
+        match self {
+            KLineRow::Empty => None,
+            KLineRow::Data(data) => Some(data.open),
+        }
+    }
+
+    pub fn high(&self) -> Option<f64> {
+        match self {
+            KLineRow::Empty => None,
+            KLineRow::Data(data) => Some(data.high),
+        }
+    }
+
+    pub fn low(&self) -> Option<f64> {
+        match self {
+            KLineRow::Empty => None,
+            KLineRow::Data(data) => Some(data.low),
+        }
+    }
+
+    pub fn close(&self) -> Option<f64> {
+        match self {
+            KLineRow::Empty => None,
+            KLineRow::Data(data) => Some(data.close),
+        }
+    }
+
+    pub fn volume(&self) -> Option<f64> {
+        match self {
+            KLineRow::Empty => None,
+            KLineRow::Data(data) => Some(data.volume),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -155,17 +189,41 @@ impl KLineMMap {
         Ok(())
     }
 
-    /// `[[opentime_ms, open, high, low, close, volume], ...]]`
-    pub fn mmap_read_all(&self) -> anyhow::Result<Vec<Vec<Option<f64>>>> {
+    /// head_opentimeがnext_head_opentime以上になることを保証して書き込み
+    pub fn update_mmap_with_shift(&mut self, next_head_opentime: DateTime<Utc>) -> anyhow::Result<()> {
+        self.shift_state(next_head_opentime);
+        self.update_mmap()?;
+        Ok(())
+    }
+
+    /// opentime昇順でDataFrameを返す
+    pub fn mmap_read_all(&self) -> anyhow::Result<DataFrame> {
         let head_opentime = self.mmap_read_header().timestamp_millis();
-        let mut ret = Vec::with_capacity(self.len);
-        // opentime昇順に並べ替える
+        let mut opentime = vec![];
+        let mut open = vec![];
+        let mut high = vec![];
+        let mut low = vec![];
+        let mut close = vec![];
+        let mut volume = vec![];
+
         for i in (0..self.len).rev() {
-            let mut row = vec![Some((head_opentime - (i as i64)*self.timeframe.num_milliseconds()) as f64)];
-            row.extend(self.mmap_read_row(i)?.to_vec());
-            ret.push(row);
+            let row = self.mmap_read_row(i)?;
+            opentime.push(head_opentime - (i as i64)*self.timeframe.num_milliseconds());
+            open.push(row.open());
+            high.push(row.high());
+            low.push(row.low());
+            close.push(row.close());
+            volume.push(row.volume());
         }
-        Ok(ret)
+
+        DataFrame::new(vec![
+            ChunkedArray::from_vec("opentime", opentime).into_datetime(TimeUnit::Milliseconds, Some("UTC".to_string())).into_series(),
+            Series::new("open", open),
+            Series::new("high", high),
+            Series::new("low", low),
+            Series::new("close", close),
+            Series::new("volume", volume),
+        ]).context("failed to create DataFrame")
     }
 
     fn mmap_write_header(&mut self, head_opentime: DateTime<Utc>) -> anyhow::Result<()> {
@@ -178,11 +236,11 @@ impl KLineMMap {
         Ok(())
     }
 
-    fn mmap_read_header(&self) -> DateTime<Utc> {
+    pub fn mmap_read_header(&self) -> DateTime<Utc> {
         let mut buf = [0u8; 8];
         buf.copy_from_slice(&self.mmap[0..8]);
         let millis = i64::from_be_bytes(buf);
-        datetime_utc_from_timestamp(millis, KLinesTimeUnit::MilliSecond)
+        datetime_utc_from_timestamp(millis, UnixTimeUnit::MilliSecond)
     }
 
     fn mmap_read_row(&self, i: usize) -> anyhow::Result<KLineRow> {
@@ -236,7 +294,7 @@ impl KLineMMap {
     }
 
     pub fn update_ohlcv(&mut self, record: &TradeRecord) -> anyhow::Result<()> {
-        let opentime = floor_time(datetime_utc_from_timestamp(record.timestamp, KLinesTimeUnit::MilliSecond), self.timeframe, 0);
+        let opentime = floor_time(datetime_utc_from_timestamp(record.timestamp, UnixTimeUnit::MilliSecond), self.timeframe, 0);
         // recordのopentimeがstateになければシフト
         self.shift_state(opentime);
         let i: usize = self.index_of(opentime)?;

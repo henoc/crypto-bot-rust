@@ -5,7 +5,7 @@ use serde_json::{Value};
 
 use crate::{symbol::{Symbol, Currency}, order_types::{Side, OrderType}, error_types::BotError};
 
-use super::{method::{make_header, get, post, ToQuery}, credentials::ApiCredentials, auth::gmo_coin_auth};
+use super::{method::{make_header, get, post, GetRequest}, credentials::ApiCredentials, auth::gmo_coin_auth};
 
 #[derive(Debug, Clone)]
 pub struct GmoClient {
@@ -33,20 +33,22 @@ impl GmoClient {
         Ok(make_header(gmo_coin_auth(method, path, body, api_credentials)?))
     }
 
-    pub async fn get_public<S: ToQuery, T: serde::de::DeserializeOwned>(
+    pub async fn get_public<S: GetRequest, T: serde::de::DeserializeOwned>(
         &self,
         path: &str,
         query: S,
     ) -> anyhow::Result<T> {
         get(&self.client, &self.public_endpoint, path, HeaderMap::new(), query).await
+            .map(|x| x.1)
     }
 
-    pub async fn get_private<S: ToQuery, T: serde::de::DeserializeOwned>(
+    pub async fn get_private<S: GetRequest, T: serde::de::DeserializeOwned>(
         &self,
         path: &str,
         query: S,
     ) -> anyhow::Result<T> {
         get(&self.client, &self.private_endpoint, path, self.make_header::<Value>(Method::GET, path, None)?, query).await
+            .map(|x| x.1)
     }
 
     pub async fn post<S: serde::Serialize, T: serde::de::DeserializeOwned>(
@@ -55,6 +57,7 @@ impl GmoClient {
         body: &S,
     ) -> anyhow::Result<T> {
         post(&self.client, &self.private_endpoint, path, self.make_header(Method::POST, path, Some(&body))?, body).await
+            .map(|x| x.1)
     }
 }
 

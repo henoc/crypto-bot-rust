@@ -6,12 +6,11 @@ use futures::StreamExt;
 use log::info;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
-use tap::Pipe;
 use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{utils::{kline_mmap::KLineMMap, strategy_utils::{show_kline_mmap, start_flush_kline_mmap, capture_result}}, config::{CrawlerConfig, KLineBuilderConfig}, symbol::{Symbol, SymbolType}, client::binance::WsAggTrade};
+use crate::{utils::{kline_mmap::KLineMMap, strategy_utils::{show_kline_mmap, start_flush_kline_mmap, CaptureResult}}, config::{CrawlerConfig, KLineBuilderConfig}, symbol::{Symbol, SymbolType}, client::binance::WsAggTrade};
 
 
 
@@ -22,7 +21,7 @@ pub async fn start_crawler_binance(config: &CrawlerConfig, check: bool) {
     let kline_config = config.kline_builder.clone();
 
     KLINE_MMAP.set(RwLock::new(
-        kline_config.iter().map(|c| (Duration::seconds(c.timeframe_sec), KLineMMap::new(symbol, Duration::seconds(c.timeframe_sec), c.len).unwrap())).collect()
+        kline_config.iter().map(|c| (c.timeframe.0, KLineMMap::new(symbol, c.timeframe.0, c.len).unwrap())).collect()
     )).unwrap();
 
     if check {
@@ -34,7 +33,7 @@ pub async fn start_crawler_binance(config: &CrawlerConfig, check: bool) {
 
     select! {
         _ = spawn(async move {
-            subscribe_trades(symbol, &kline_config).await.pipe(capture_result(&symbol));
+            subscribe_trades(symbol, &kline_config).await.capture_result(symbol).await.unwrap();
         }) => {}
     }
 }
@@ -48,7 +47,7 @@ async fn subscribe_trades(symbol: Symbol, kline_config: &Vec<KLineBuilderConfig>
         Url::parse(&format!("wss://{}.binance.com/ws/{}@aggTrade", stream_name, symbol.to_native().to_lowercase())).unwrap()).await?;
     info!("Connected to websocket");
 
-    let (mut write, mut read) = socket.split();
+    let (mut _write, mut read) = socket.split();
 
     while let Some(msg) = read.next().await {
         match handle_trades_msg(msg?, &symbol, kline_config) {
@@ -56,7 +55,7 @@ async fn subscribe_trades(symbol: Symbol, kline_config: &Vec<KLineBuilderConfig>
             _ => continue,
         }
     }
-    Ok(())
+    anyhow::bail!("Websocket disconnected");
 }
 
 fn handle_trades_msg(msg: Message, symbol: &Symbol, kline_config: &Vec<KLineBuilderConfig>) -> anyhow::Result<()> {
@@ -64,7 +63,7 @@ fn handle_trades_msg(msg: Message, symbol: &Symbol, kline_config: &Vec<KLineBuil
     let ws_agg_trade: WsAggTrade = serde_json::from_str(msg)?;
     for conf in kline_config {
         KLINE_MMAP.get().context("KLINE_MMAP is not initialized")?.write()
-            .get_mut(&Duration::seconds(conf.timeframe_sec)).unwrap().update_ohlcv(&ws_agg_trade.to_trade_record(*symbol)?)?;
+            .get_mut(&conf.timeframe.0).unwrap().update_ohlcv(&ws_agg_trade.to_trade_record(*symbol)?)?;
     }
     Ok(())
 }

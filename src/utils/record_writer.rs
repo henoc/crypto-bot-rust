@@ -185,7 +185,7 @@ fn test_mpack_record_writer() {
         "mpacktest",
         &symbol,
         "msgpack",
-        Box::new(|item| Some(datetime_utc_from_timestamp(item.0.timestamp, crate::utils::time::KLinesTimeUnit::MilliSecond)))
+        Box::new(|item| Some(datetime_utc_from_timestamp(item.0.timestamp, crate::utils::time::UnixTimeUnit::MilliSecond)))
     );
     let data = vec![
         TradeRecord::new(

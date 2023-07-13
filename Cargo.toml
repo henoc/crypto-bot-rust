@@ -30,9 +30,14 @@ thiserror = "1.0.40"
 tokio = { version = "1.27.0", features = ["full"] }
 tokio-tungstenite = { version = "0.18.0", features = ["rustls-tls-webpki-roots"] }
 url = "2.3.1"
-polars = { version = "0.28.0", features = ["dtype-datetime", "timezones", "parquet", "polars-io", "polars-lazy", "lazy", "temporal"] }
+polars = { version = "0.28.0", features = [
+    "dtype-datetime", "timezones", "parquet",
+    "polars-io", "polars-lazy", "lazy", "temporal",
+    "rolling_window", "pct_change", "ewma", "abs"
+] }
 futures = { version = "0.3.28", default-features = true }
 memmap = "0.7.0"
+uuid =  { version = "1.4.0", features = ["v4", "fast-rng" ] }
 
 [profile.dev]
 panic = "abort"

@@ -1,7 +1,10 @@
+use std::{collections::HashMap, env};
+
 use anyhow::{Context, anyhow};
 use clap::Parser;
 use config::{Strategy, CrawlerConfig};
 use log::LevelFilter;
+use once_cell::sync::Lazy;
 use symbol::Exchange;
 
 mod symbol;
@@ -23,6 +26,9 @@ struct Args {
 }
 
 static LOGGER: logger::BotLogger = logger::BotLogger;
+static CONFIG: Lazy<HashMap<String,Strategy>> = Lazy::new(|| {
+    config::load_config().unwrap()
+});
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -31,12 +37,15 @@ async fn main() -> anyhow::Result<()> {
     log::set_logger(&LOGGER)
         .map(|()| log::set_max_level(LevelFilter::Info))?;
 
+    env::set_var("NAME", &args.name);
 
-    let config = config::load_config()?;
-    let strategy = config.get(&args.name).context(anyhow!("{} is not found in config", args.name))?;
+    let strategy = CONFIG.get(&args.name).context(anyhow!("{} is not found in config", args.name))?;
     match strategy {
         Strategy::Shannon(strategy_config) => {
             strategy::shannon_gmo::start_shannon_gmo(strategy_config).await;
+        },
+        Strategy::TracingMm(strategy_config) => {
+            strategy::tracingmm_bitflyer::start_tracingmm_bitflyer(strategy_config, args.check).await;
         },
         Strategy::Crawler(strategy_config) => {
             match strategy_config.symbol.exc {

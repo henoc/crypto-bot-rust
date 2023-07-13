@@ -22,3 +22,16 @@ pub fn gmo_coin_auth<T: serde::Serialize>(method: Method, path: &str, body: Opti
     headers.insert("API-SIGN".to_string(), signature);
     Ok(headers)
 }
+
+pub fn bitflyer_auth<T: serde::Serialize>(method: Method, path: &str, body: Option<&T>, api_key_secret: &ApiCredentials) -> anyhow::Result<HashMap<String, String>> {
+    let timestamp = chrono::Utc::now().timestamp().to_string();
+    let data = if body.is_none() {format!("{}{}{}", timestamp, method, path)} else {format!("{}{}{}{}", timestamp, method, path, serde_json::to_string(body.unwrap())?)};
+    let key = hmac::Key::new(hmac::HMAC_SHA256, api_key_secret.api_secret.as_bytes());
+    let signature = hmac::sign(&key, data.as_bytes());
+    let sign = hex::encode(signature.as_ref());
+    let mut headers = HashMap::new();
+    headers.insert("ACCESS-KEY".to_string(), api_key_secret.api_key.clone());
+    headers.insert("ACCESS-TIMESTAMP".to_string(), timestamp);
+    headers.insert("ACCESS-SIGN".to_string(), sign);
+    Ok(headers)
+}

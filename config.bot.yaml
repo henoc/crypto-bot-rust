@@ -9,6 +9,31 @@ shannon_gmo:
   virtual_amount:
     base: 0.1143      # 0.0381*3
     quote: 425124     # 141708*3
+tracing_mm_bitflyer:
+  strategy: tracing_mm
+  symbol:
+    base: BTC
+    quote: JPY
+    settlement: JPY
+    type: perp
+    exc: bitflyer
+  timeframe: 150s
+  leverage: 2
+  ref_symbol:
+    base: BTC
+    quote: USDT
+    settlement: USDT
+    type: spot
+    exc: binance
+  atr_period: 26
+  beta:
+    in: 1.499918816270843
+    out: 1.499918816270843
+  gamma:
+    in: 1.6352887880856914
+    out: 1.6352887880856914
+  losscut_rate: 0.07669143101596552
+  exit_mean_frame: 45
 crawler_coincheck:
   strategy: crawler
   symbol:
@@ -27,7 +52,7 @@ crawler_bitflyer:
     type: perp
     exc: bitflyer
   kline_builder:
-    - timeframe_sec: 150
+    - timeframe: 150s
       len: 300
 crawler_bitflyer_spot:
   strategy: crawler
@@ -38,9 +63,9 @@ crawler_bitflyer_spot:
     type: spot
     exc: bitflyer
   kline_builder:
-    - timeframe_sec: 150
+    - timeframe: 150s
       len: 300
-crawler_binance_btcusdt_spot:
+crawler_binance:
   strategy: crawler
   symbol:
     base: BTC
@@ -49,5 +74,5 @@ crawler_binance_btcusdt_spot:
     type: spot
     exc: binance
   kline_builder:
-    - timeframe_sec: 150
+    - timeframe: 150s
       len: 300

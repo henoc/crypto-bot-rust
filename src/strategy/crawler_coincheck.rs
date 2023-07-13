@@ -1,7 +1,5 @@
-use std::thread::sleep;
-
-use anyhow::{Context, anyhow};
-use chrono::{Duration, NaiveDateTime, DateTime, Utc};
+use anyhow::{Context};
+use chrono::{Duration, DateTime, Utc};
 use futures::{StreamExt, SinkExt};
 use log::info;
 use once_cell::sync::OnceCell;
@@ -12,16 +10,16 @@ use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::{time::{sleep_until_next, ScheduleExpr, datetime_utc_from_timestamp, KLinesTimeUnit, parse_format_time_utc, format_time_utc, self, now_floor_time}, status_repository::StatusRepository, record_writer::{SerialRecordWriter, SerializerType}, strategy_utils::{capture_result, start_send_ping}}, client::{coincheck::{CoincheckClient, KLineRequest, KLineResponse, WsTradesResponse}, types::{KLines, MpackTradeRecord, trades_time_fn}}};
+use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::{time::{sleep_until_next, ScheduleExpr, parse_format_time_utc, now_floor_time}, status_repository::StatusRepository, record_writer::{SerialRecordWriter}, strategy_utils::{start_send_ping, CaptureResult}}, client::{coincheck::{CoincheckClient, KLineRequest, KLineResponse, WsTradesResponse}, types::{MpackTradeRecord, trades_time_fn}}};
 
 static STATUS: OnceCell<RwLock<StatusRepository>> = OnceCell::new();
 static TRADE_RECORD: OnceCell<RwLock<Vec<MpackTradeRecord>>> = OnceCell::new();
 
 pub async fn start_crawler_coincheck() {
 
-    STATUS.set(RwLock::new(StatusRepository::new("crawler"))).unwrap();
     let client = CoincheckClient::new();
     let symbol = Symbol::new(Currency::BTC, Currency::JPY, SymbolType::Spot, Exchange::Coincheck);
+    STATUS.set(RwLock::new(StatusRepository::new_init("crawler", &symbol, None).unwrap())).unwrap();
 
     TRADE_RECORD.set(RwLock::new(Vec::new())).unwrap();
 
@@ -30,18 +28,18 @@ pub async fn start_crawler_coincheck() {
         _ = spawn(async move {
             loop {
                 sleep_until_next(ScheduleExpr::new(Duration::hours(1), Duration::minutes(0))).await;
-                fetch_kline(symbol, &client).await.pipe(capture_result(&symbol));
+                fetch_kline(symbol, &client).await.capture_result(symbol).await.unwrap();
             }
         }) => {}
         // tradesのsubscribe
         _ = spawn(async move {
-            subscribe_trades(symbol).await.pipe(capture_result(&symbol));
+            subscribe_trades(symbol).await.capture_result(symbol).await.unwrap();
         }) => {}
         // tradesのファイル出力
         _ = spawn(async move {
             loop {
                 sleep_until_next(ScheduleExpr::new(Duration::seconds(5), Duration::seconds(0))).await;
-                flush_trade_records(symbol).pipe(capture_result(&symbol));
+                flush_trade_records(symbol).capture_result(symbol).await.unwrap();
             }
         }) => {}
     }
@@ -59,7 +57,7 @@ fn kline_time_fn(value: &Value) -> Option<DateTime<Utc>> {
 async fn fetch_kline(symbol: Symbol, client: &CoincheckClient) -> anyhow::Result<()> {
     let timeframe = Duration::minutes(1);
     let limit = 300;
-    let result: KLineResponse = client.get("/api/charts/candle_rates", KLineRequest {
+    let result: KLineResponse = client.get(KLineRequest {
         symbol: symbol.clone(),
         timeframe: timeframe.clone(),
         limit,
@@ -67,7 +65,7 @@ async fn fetch_kline(symbol: Symbol, client: &CoincheckClient) -> anyhow::Result
     let mut klines = result.to_klines(now_floor_time(timeframe, 0), timeframe)?;
 
     // last_timeの読み込み
-    let obj = STATUS.get().context("STATUS is not initialized")?.write().get(&symbol, None)?;
+    let obj = STATUS.get().context("STATUS is not initialized")?.read().get(&symbol).clone();
     let last_time = obj["last_time"].as_str();
     if let Some(last_time) = last_time {
         klines = klines.filter(Some(parse_format_time_utc(last_time)? + timeframe), None)?;
@@ -112,7 +110,7 @@ async fn subscribe_trades(symbol: Symbol) -> anyhow::Result<()> {
             Err(_) => continue,
         }
     }
-    Ok(())
+    anyhow::bail!("WebSocket disconnected");
 }
 
 fn handle_trade_msg(msg: Message) -> anyhow::Result<()> {
@@ -141,6 +139,7 @@ fn flush_trade_records(symbol: Symbol) -> anyhow::Result<()> {
 
 #[test]
 fn test_timefn() {
+    use crate::utils::time::format_time_utc;
     let value = json!({
         "close": 4406641.5, "high": 4406641.5, "low": 4402941.0, "open": 4402941.0, "opentime": "2023-07-01T11:44:00+00:00", "volume": 0.0
     });

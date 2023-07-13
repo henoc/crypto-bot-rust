@@ -3,8 +3,9 @@ use polars::{prelude::{DataFrame, NamedFrom, ChunkedArray, TimeUnit, IntoLazy, T
 use serde::{Serialize, Serializer};
 use serde_json::{Value, json};
 
-use crate::{utils::{dataframe::chrono_dt_to_series_ms, time::{KLinesTimeUnit, datetime_utc_from_timestamp, UnixTimeMs, format_time_naive}}, symbol::Symbol, order_types::Side};
+use crate::{utils::{dataframe::chrono_dt_to_series_ms, time::{UnixTimeUnit, datetime_utc_from_timestamp, UnixTimeMs, format_time_naive}}, symbol::Symbol, order_types::Side};
 
+#[derive(Debug, Clone)]
 pub struct KLines {
     pub df: DataFrame
 }
@@ -16,7 +17,7 @@ impl KLines {
         }
     }
 
-    pub fn new(ohlcvs: &Vec<Vec<f64>>, time_unit: KLinesTimeUnit) -> anyhow::Result<KLines> {
+    pub fn new(ohlcvs: &Vec<Vec<f64>>, time_unit: UnixTimeUnit) -> anyhow::Result<KLines> {
         let mut opentime = vec![];
         let mut open = vec![];
         let mut high = vec![];
@@ -44,7 +45,7 @@ impl KLines {
         })
     }
 
-    pub fn new_options(ohlcvs: &Vec<Vec<Option<f64>>>, time_unit: KLinesTimeUnit) -> anyhow::Result<KLines> {
+    pub fn new_options(ohlcvs: &Vec<Vec<Option<f64>>>, time_unit: UnixTimeUnit) -> anyhow::Result<KLines> {
         let mut opentime = vec![];
         let mut open = vec![];
         let mut high = vec![];
@@ -72,23 +73,24 @@ impl KLines {
         })
     }
 
-    pub fn sort(&mut self) -> anyhow::Result<()> {
-        self.df = self.df.sort(vec!["opentime"], false)?;
-        Ok(())
+    pub fn sorted(self) -> anyhow::Result<KLines> {
+        let df = self.df.sort(vec!["opentime"], false)?;
+        Ok(KLines { df })
     }
 
-    /// indexを補完し、Noneの行を埋める
-    pub fn reindex(&mut self, until: DateTime<Utc>, timeframe: Duration) -> anyhow::Result<()> {
+    /// indexを補完し、Noneの行を埋める。[,until)の範囲のデータを返す
+    pub fn reindex(self, until: DateTime<Utc>, timeframe: Duration) -> anyhow::Result<KLines> {
         let last_opentime = until - timeframe;
         let last_df = DataFrame::new(vec![
             chrono_dt_to_series_ms("opentime", vec![last_opentime]),
         ])?;
-        let mut df = DataFrame::empty();
-        std::mem::swap(&mut df, &mut self.df);
-        df = df.lazy().join_builder().on(vec![col("opentime")]).with(last_df.lazy()).how(polars::prelude::JoinType::Outer).finish().collect()?;
+        let mut df = self.df.lazy()
+            .outer_join(last_df.lazy(), col("opentime"), col("opentime"))
+            .filter(col("opentime").lt(lit(until.naive_utc())))
+            .collect()?;
         let duration = polars::prelude::Duration::parse(format!("{}s", timeframe.num_seconds()).as_str());
         df = df.upsample_stable::<Vec<&str>>(vec![], "opentime", duration, polars::prelude::Duration::new(0))?;
-        self.df = df.lazy().with_columns(vec![
+        df = df.lazy().with_columns(vec![
             col("close").forward_fill(None),
             col("volume").fill_null(lit(0.)),
         ]).with_columns(vec![
@@ -96,7 +98,7 @@ impl KLines {
             col("high").fill_null(col("close")),
             col("low").fill_null(col("close")),
         ]).drop_nulls(None).collect()?;
-        Ok(())
+        Ok(KLines { df })
     }
 
     /// [since, until)の範囲のデータを取得する
@@ -111,6 +113,17 @@ impl KLines {
             None => lazy_df
         };
         Ok(KLines { df: lazy_df.collect()? })
+    }
+
+    pub fn at(&self, opentime: DateTime<Utc>, col_name: &str) -> anyhow::Result<Option<f64>> {
+        let opentime = opentime.naive_utc();
+        let opentime = lit(opentime);
+        let df = self.df.clone().lazy();
+        let df = df.filter(col("opentime").eq(opentime));
+        let df = df.select(&[col(col_name)]);
+        let df = df.collect()?;
+        let col = df.column(col_name)?.f64()?;
+        Ok(col.get(0))
     }
 
     pub fn to_json(&self) -> anyhow::Result<Value> {
@@ -132,6 +145,12 @@ impl KLines {
             }));
         }
         Ok(Value::Array(ret))
+    }
+}
+
+impl From<DataFrame> for KLines {
+    fn from(df: DataFrame) -> Self {
+        KLines { df }
     }
 }
 
@@ -171,7 +190,7 @@ impl Serialize for MpackTradeRecord {
 }
 
 pub fn trades_time_fn(mpack_trade_record: &MpackTradeRecord) -> Option<DateTime<Utc>> {
-    let dt = datetime_utc_from_timestamp(mpack_trade_record.0.timestamp, KLinesTimeUnit::MilliSecond);
+    let dt = datetime_utc_from_timestamp(mpack_trade_record.0.timestamp, UnixTimeUnit::MilliSecond);
     Some(dt)
 }
 
@@ -202,11 +221,13 @@ fn test_klines() {
             Some(3740184.0),
             Some(1.49343964)
     ]);
-    let mut klines = KLines::new_options(&ohlcvs, KLinesTimeUnit::Second).unwrap();
+    let klines = KLines::new_options(&ohlcvs, UnixTimeUnit::Second).unwrap();
     println!("{:?}", klines.df);
-    let until = datetime_utc_from_timestamp(1686122100, KLinesTimeUnit::Second);
-    klines.reindex(until, Duration::seconds(60)).unwrap();
+    let until = datetime_utc_from_timestamp(1686122100, UnixTimeUnit::Second);
+    let klines = klines.reindex(until, Duration::seconds(60)).unwrap();
     println!("{:?}", klines.df);
 
-    println!("{:?}", klines.filter(Some(datetime_utc_from_timestamp(1686121980,KLinesTimeUnit::Second)), Some(datetime_utc_from_timestamp(1686122100,KLinesTimeUnit::Second))).unwrap().df);
+    println!("{:?}", klines.filter(Some(datetime_utc_from_timestamp(1686121980,UnixTimeUnit::Second)), Some(datetime_utc_from_timestamp(1686122100,UnixTimeUnit::Second))).unwrap().df);
+
+    assert_eq!(klines.at(datetime_utc_from_timestamp(1686121920, UnixTimeUnit::Second), "open").unwrap(), Some(3743331.0));
 }

@@ -5,9 +5,9 @@ use hyper::HeaderMap;
 use maplit::hashmap;
 use serde::{Deserialize, Deserializer};
 
-use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::time::KLinesTimeUnit, order_types::Side};
+use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::time::UnixTimeUnit, order_types::Side};
 
-use super::{method::{get, ToQuery}, types::{KLines, TradeRecord}};
+use super::{method::{get, GetRequest, HasPath}, types::{KLines, TradeRecord}};
 
 pub struct CoincheckClient {
     client: reqwest::Client,
@@ -22,12 +22,12 @@ impl CoincheckClient {
         }
     }
 
-    pub async fn get<S: ToQuery,T: serde::de::DeserializeOwned>(
+    pub async fn get<S: GetRequest + HasPath>(
         &self,
-        path: &str,
         query: S,
-    ) -> anyhow::Result<T> {
-        get(&self.client, &self.endpoint, path, HeaderMap::new(), query).await
+    ) -> anyhow::Result<S::Response> {
+        get(&self.client, &self.endpoint, S::PATH, HeaderMap::new(), query).await
+            .map(|x| x.1)
     }
 }
 
@@ -37,7 +37,12 @@ pub struct KLineRequest {
     pub limit: i64, 
 }
 
-impl ToQuery for KLineRequest {
+impl HasPath for KLineRequest {
+    const PATH: &'static str = "/api/charts/candle_rates";
+    type Response = KLineResponse;
+}
+
+impl GetRequest for KLineRequest {
     fn to_query(&self) -> HashMap<String, String> {
         hashmap! {
             "pair".to_string() => self.symbol.to_native(),
@@ -66,10 +71,8 @@ impl KLineResponse {
     ///
     /// [1685932020,null,null,null,null,0.0], の場合がある
     pub fn to_klines(&self, until: DateTime<Utc>, timeframe: Duration) -> anyhow::Result<KLines> {
-        let mut ret = KLines::new_options(&self.0, KLinesTimeUnit::Second)?;
-        ret.sort()?;
-        ret.reindex(until, timeframe)?;
-        Ok(ret)
+        let ret = KLines::new_options(&self.0, UnixTimeUnit::Second)?;
+        Ok(ret.sorted()?.reindex(until, timeframe)?)
     }
 }
 

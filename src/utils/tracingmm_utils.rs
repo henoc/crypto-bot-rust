@@ -1,0 +1,135 @@
+use anyhow::{Context, anyhow};
+use polars::{prelude::{DataFrame, IntoLazy, RollingOptions, EWMOptions}, lazy::dsl::{col, lit}};
+use serde::Deserialize;
+
+use crate::{order_types::{PosSide, Side}, data_structure::float_exp::FloatExp};
+
+
+#[derive(Debug, Clone)]
+pub struct TracingMMPosition {
+    pub pos: FloatExp,
+    pub entry_price: FloatExp,
+    pub init_notional: FloatExp,
+}
+
+impl TracingMMPosition {
+    pub const fn new(price_exp: i32, amount_exp: i32) -> Self {
+        Self {
+            pos: FloatExp::new(0, amount_exp),
+            entry_price: FloatExp::new(0, price_exp),
+            init_notional: FloatExp::new(0, price_exp + amount_exp),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PriceInOut {
+    pub r#in: f64,
+    pub out: f64,
+}
+
+impl PriceInOut {
+    pub fn new(r#in: f64, out: f64) -> Self {
+        Self {
+            r#in,
+            out,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TracingPriceResult {
+    pub buy_price: PriceInOut,
+    pub sell_price: PriceInOut,
+    pub last_close: f64,
+}
+
+impl TracingPriceResult {
+    pub fn by_side(&self, side: Side) -> &PriceInOut {
+        match side {
+            Side::Buy => &self.buy_price,
+            Side::Sell => &self.sell_price,
+        }
+    }
+}
+
+fn tracing_price_df(df: DataFrame, ref_df: DataFrame, mapping_size: i64, atr_period: i64, beta: &PriceInOut, gamma: &PriceInOut) -> anyhow::Result<DataFrame> {
+    if df.column("opentime")? != &df.column("opentime")?.sort(false) {
+        anyhow::bail!("opentime must be sorted");
+    }
+    
+    // min_periods = 1 になるが影響はない
+    let mut rolling_options = RollingOptions::default();
+    rolling_options.window_size = polars::time::Duration::parse(&format!("{}i", mapping_size));
+    let mut ewm_options = EWMOptions::default();
+    ewm_options.alpha = 1.0 / atr_period as f64;
+    ewm_options.adjust = false;
+
+    let df = df.lazy().left_join(ref_df.lazy().select(vec![
+        col("opentime"),
+        col("close").alias("cl_ref"),
+    ]), col("opentime"), col("opentime"))
+        .with_columns(vec![
+        (col("close").rolling_mean(rolling_options.clone()) / col("cl_ref").rolling_mean(rolling_options)).alias("conv_rate"),
+    ]).with_columns(vec![
+        (col("cl_ref") * col("conv_rate")).alias("cl_ref_mapped"),
+        (col("cl_ref").pct_change(1)).alias("cl_trend"),
+        (col("high") - col("low")).ewm_mean(ewm_options).alias("atr")
+    ]).with_columns(vec![
+        (col("cl_ref_mapped") * (lit(1.0) - col("cl_trend").abs() * lit(gamma.r#in)) - col("atr") * lit(beta.r#in)).alias("buy_price"),
+        (col("cl_ref_mapped") * (lit(1.0) + col("cl_trend").abs() * lit(gamma.r#in)) + col("atr") * lit(beta.r#in)).alias("sell_price"),
+        (col("cl_ref_mapped") * (lit(1.0) - col("cl_trend").abs() * lit(gamma.r#out)) - col("atr") * lit(beta.r#out)).alias("buy_exit"),
+        (col("cl_ref_mapped") * (lit(1.0) + col("cl_trend").abs() * lit(gamma.r#out)) + col("atr") * lit(beta.r#out)).alias("sell_exit"),
+    ]).collect()?;
+    if df["opentime"] != df["opentime"].sort(false) {
+        anyhow::bail!("opentime must be sorted");
+    }
+    Ok(df)
+}
+
+pub fn tracing_price(df: DataFrame, ref_df: DataFrame, mapping_size: i64, atr_period: i64, beta: &PriceInOut, gamma: &PriceInOut) -> anyhow::Result<TracingPriceResult> {
+    let df = tracing_price_df(df, ref_df, mapping_size, atr_period, beta, gamma)?;
+    let len = df.height();
+    Ok(TracingPriceResult {
+        buy_price: PriceInOut {
+            r#in: df["buy_price"].f64()?.to_vec()[len - 1].context("buy_price is empty")?,
+            out: df["buy_exit"].f64()?.to_vec()[len - 1].context("buy_exit is empty")?,
+        },
+        sell_price: PriceInOut {
+            r#in: df["sell_price"].f64()?.to_vec()[len - 1].context("sell_price is empty")?,
+            out: df["sell_exit"].f64()?.to_vec()[len - 1].context("sell_exit is empty")?,
+        },
+        last_close: df["close"].f64()?.to_vec()[len - 1].context("close is empty")?,
+    })
+}
+
+#[test]
+fn test_tracing_price() {
+    // https://stackoverflow.com/questions/70830241/rust-polars-how-to-show-all-columns
+    std::env::set_var("POLARS_FMT_MAX_COLS", "20");
+    use polars::prelude::*;
+    let mut file = std::fs::File::open("test/mm_atr_polars.parquet").unwrap();
+    let pq = ParquetReader::new(&mut file).finish().unwrap();
+    println!("{:?}", pq);
+    let df = pq.clone().lazy().select(vec![
+        col("opentime"),
+        col("high"),
+        col("low"),
+        col("close"),
+        col("volume"),
+    ]).collect().unwrap();
+    let ref_df = pq.clone().lazy().select(vec![
+        col("opentime"),
+        col("cl_ref").alias("close")
+    ]).collect().unwrap();
+    // {'alpha': 16, 'beta_in': 1.3861126614518735, 'gamma_in': 1.883522715736597, 'losscut_rate': 0.09864901642842279}
+    let mapping_size = 100;
+    let atr_period = 16;
+    let beta = PriceInOut::new(1.3861126614518735, 1.3861126614518735);
+    let gamma = PriceInOut::new(1.883522715736597, 1.883522715736597);
+    let ret = tracing_price_df(df.clone(), ref_df.clone(), mapping_size, atr_period, &beta, &gamma).unwrap();
+    println!("{:?}", ret);
+    // f64の値を取り出すと一致していることがわかる
+    let prices = tracing_price(df, ref_df, mapping_size, atr_period,& beta, &gamma).unwrap();
+    println!("{:?}", prices);
+}

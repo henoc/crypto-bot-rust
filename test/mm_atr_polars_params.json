@@ -1,0 +1,12 @@
+{
+    "alpha": 16,
+    "beta_in": 1.3861126614518735,
+    "gamma_in": 1.883522715736597,
+    "losscut_rate": 0.09864901642842279,
+    "beta_out": 1.3861126614518735,
+    "gamma_out": 1.883522715736597,
+    "trend_period": 1,
+    "timeout": null,
+    "mapping_size": 100,
+    "side_only": null
+}

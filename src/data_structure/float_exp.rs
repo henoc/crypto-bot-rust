@@ -1,13 +1,17 @@
-use std::{ops::{Add, Sub, Mul, AddAssign, SubAssign, Div}, fmt::Display};
+use std::{ops::{Add, Sub, Mul, AddAssign, SubAssign, Div}, fmt::{Display, Debug}, str::FromStr};
 
-#[derive(Debug, Clone, Copy, Eq)]
+use chrono::format;
+use serde::Serialize;
+
+#[derive(Clone, Copy, Eq)]
 pub struct FloatExp {
     pub value: i64,
     pub exp: i32,
 }
 
 impl FloatExp {
-    pub fn new(value: i64, exp: i32) -> Self {
+    /// x = value * 10^exp
+    pub const fn new(value: i64, exp: i32) -> Self {
         Self {
             value,
             exp,
@@ -48,11 +52,33 @@ impl FloatExp {
         let exp = self.exp.min(rhs.exp);
         Self::new(self.round(exp).value + rhs.round(exp).value, exp)
     }
+
+    pub const fn is_zero(&self) -> bool {
+        self.value == 0
+    }
 }
 
 impl Display for FloatExp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{value:.*}", if self.exp<0 {(-self.exp) as usize} else {0}, value=self.to_f64())
+    }
+}
+
+impl Debug for FloatExp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{value:.*}@exp={exp}", if self.exp<0 {(-self.exp) as usize} else {0}, value=self.to_f64(), exp=self.exp)
+    }
+}
+
+// rust-decimalの実装を参考にした
+// https://docs.rs/rust_decimal/latest/rust_decimal/serde/arbitrary_precision/index.html
+impl Serialize for FloatExp {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer, {
+            serde_json::Number::from_str(&self.to_string())
+            .map_err(serde::ser::Error::custom)?
+            .serialize(serializer)
     }
 }
 
@@ -192,4 +218,18 @@ fn test_float_exp_display() {
     assert_eq!(format!("{}", FloatExp::from_f64(1.234, -3)), "1.234");
     assert_eq!(format!("{}", FloatExp::from_f64(1.234, -4)), "1.2340");
     assert_eq!(format!("{}", FloatExp::from_f64(1.234, 0)), "1");
+    println!("{:?}", FloatExp::from_f64(1.234, -2));
+}
+
+#[test]
+fn test_float_exp_serialize() {
+    use serde_json::json;
+    let o = json!({
+        "a": FloatExp::from_f64(1.234, -2),
+    });
+    assert_eq!(o.to_string(), "{\"a\":1.23}");
+    let o = json!({
+        "a": FloatExp::from_f64(1.234, 0),
+    });
+    assert_eq!(o.to_string(), "{\"a\":1}");
 }

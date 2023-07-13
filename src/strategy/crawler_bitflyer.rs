@@ -11,7 +11,7 @@ use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{config::{KLineBuilderConfig, CrawlerConfig}, utils::{strategy_utils::{capture_result, start_send_ping, show_kline_mmap, start_flush_kline_mmap}, kline_mmap::KLineMMap, time::{sleep_until_next, ScheduleExpr, KLinesTimeUnit}}, symbol::Symbol, client::{types::{MpackTradeRecord, trades_time_fn, TradeRecord, KLines}, bitflyer::{WsResponse, ExecutionItem}}};
+use crate::{config::{KLineBuilderConfig, CrawlerConfig}, utils::{strategy_utils::{start_send_ping, show_kline_mmap, start_flush_kline_mmap, CaptureResult}, kline_mmap::KLineMMap, time::{sleep_until_next, ScheduleExpr, UnixTimeUnit}}, symbol::Symbol, client::{types::{MpackTradeRecord, trades_time_fn, TradeRecord, KLines}, bitflyer::{WsResponse, ExecutionItem}}};
 
 static KLINE_MMAP: OnceCell<RwLock<HashMap<Duration, KLineMMap>>> = OnceCell::new();
 
@@ -20,7 +20,7 @@ pub async fn start_crawler_bitflyer(config: &CrawlerConfig, check: bool) {
     let kline_config = config.kline_builder.clone();
 
     KLINE_MMAP.set(RwLock::new(
-        kline_config.iter().map(|c| (Duration::seconds(c.timeframe_sec), KLineMMap::new(symbol, Duration::seconds(c.timeframe_sec), c.len).unwrap())).collect()
+        kline_config.iter().map(|c| (c.timeframe.0, KLineMMap::new(symbol, c.timeframe.0, c.len).unwrap())).collect()
     )).unwrap();
 
     // ファイルの中身を表示する
@@ -33,7 +33,7 @@ pub async fn start_crawler_bitflyer(config: &CrawlerConfig, check: bool) {
 
     select! {
         _ = spawn(async move {
-            subscribe_trades(symbol, &kline_config).await.pipe(capture_result(&symbol));
+            subscribe_trades(symbol, &kline_config).await.capture_result(symbol).await.unwrap();
         }) => {}
     }
 }
@@ -60,29 +60,23 @@ async fn subscribe_trades(symbol: Symbol, kline_config: &Vec<KLineBuilderConfig>
             _ => continue,
         }
     }
-    Ok(())
+    anyhow::bail!("WebSocket disconnected");
 }
 
 fn handle_trades_msg(msg: Message, symbol: &Symbol, kline_config: &Vec<KLineBuilderConfig>) -> anyhow::Result<()> {
     let msg = msg.to_text()?;
     let parsed: WsResponse = serde_json::from_str(msg)?;
     if &parsed.method != "channelMessage" {
-        return anyhow::bail!("Not channelMessage");
+        anyhow::bail!("Not channelMessage");
     }
     if &parsed.params.channel != &format!("lightning_executions_{}", symbol.to_native()) {
-        return anyhow::bail!("Not channel for lightning_executions_{}", symbol.to_native());
+        anyhow::bail!("Not channel for lightning_executions_{}", symbol.to_native());
     }
     let trades = serde_json::from_value::<Vec<ExecutionItem>>(parsed.params.message)?;
-    let trades = trades.into_iter().map(|t| TradeRecord::new(
-        *symbol,
-        t.exec_date.0.timestamp_millis(),
-        t.price,
-        t.size,
-        t.side,
-    )).collect();
+    let trades = trades.into_iter().map(|t| t.to_trade_record(*symbol)).collect();
     for conf in kline_config {
         KLINE_MMAP.get().context("KLINE_MMAP is not initialized")?.write()
-            .get_mut(&Duration::seconds(conf.timeframe_sec)).unwrap().update_ohlcvs(&trades)?;
+            .get_mut(&conf.timeframe.0).unwrap().update_ohlcvs(&trades)?;
     }
     Ok(())
 }
