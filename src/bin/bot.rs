@@ -2,20 +2,10 @@ use std::{collections::HashMap, env};
 
 use anyhow::{Context, anyhow};
 use clap::Parser;
-use config::{Strategy, CrawlerConfig};
+use bot::{config::{Strategy, CrawlerConfig, self}, logger};
 use log::LevelFilter;
 use once_cell::sync::Lazy;
-use symbol::Exchange;
-
-mod symbol;
-mod data_structure;
-mod client;
-pub mod order_types;
-pub mod error_types;
-pub mod strategy;
-mod config;
-mod logger;
-mod utils;
+use bot::symbol::Exchange;
 
 #[derive(Parser)]
 struct Args {
@@ -42,21 +32,21 @@ async fn main() -> anyhow::Result<()> {
     let strategy = CONFIG.get(&args.name).context(anyhow!("{} is not found in config", args.name))?;
     match strategy {
         Strategy::Shannon(strategy_config) => {
-            strategy::shannon_gmo::start_shannon_gmo(strategy_config).await;
+            bot::strategy::shannon_gmo::start_shannon_gmo(strategy_config).await;
         },
         Strategy::TracingMm(strategy_config) => {
-            strategy::tracingmm_bitflyer::start_tracingmm_bitflyer(strategy_config, args.check).await;
+            bot::strategy::tracingmm_bitflyer::start_tracingmm_bitflyer(strategy_config, args.check).await;
         },
         Strategy::Crawler(strategy_config) => {
             match strategy_config.symbol.exc {
                 Exchange::Coincheck => {
-                    strategy::crawler_coincheck::start_crawler_coincheck().await;
+                    bot::strategy::crawler_coincheck::start_crawler_coincheck().await;
                 },
                 Exchange::Bitflyer => {
-                    strategy::crawler_bitflyer::start_crawler_bitflyer(strategy_config, args.check).await;
+                    bot::strategy::crawler_bitflyer::start_crawler_bitflyer(strategy_config, args.check).await;
                 },
                 Exchange::Binance => {
-                    strategy::crawler_binance::start_crawler_binance(strategy_config, args.check).await;
+                    bot::strategy::crawler_binance::start_crawler_binance(strategy_config, args.check).await;
                 },
                 _ => {
                     anyhow::bail!("{} is not supported", strategy_config.symbol.exc);

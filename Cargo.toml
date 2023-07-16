@@ -38,6 +38,7 @@ polars = { version = "0.28.0", features = [
 futures = { version = "0.3.28", default-features = true }
 memmap = "0.7.0"
 uuid =  { version = "1.4.0", features = ["v4", "fast-rng" ] }
+duct = "0.13.6"
 
 [profile.dev]
 panic = "abort"

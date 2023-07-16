@@ -11,6 +11,11 @@ sudo vim /etc/systemd/system/immortaldir.service    # immortalの対象ディレ
 sudo systemctl start immortaldir
 # hostname変更
 sudo hostnamectl set-hostname s3
+
+# cron設定
+sudo yum install cronie
+sudo systemctl start crond.service
+sudo crontab -e     # 58 * * * * cd /home/ec2-user/; ./report >> /tmp/report.log 2>&1
 ```
 
 ## クロスコンパイル
@@ -18,7 +23,7 @@ sudo hostnamectl set-hostname s3
 - glibcの要求バージョン2.28を満たすamazon linux 2023でないと実行できない
 - Dockerfileを参照してcrossでコンパイルする
 
-```
+```shell
 # verboseをつけると失敗箇所がわかりやすい
 cross build --target x86_64-unknown-linux-gnu --verbose --release
 ```

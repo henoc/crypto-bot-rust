@@ -1,0 +1,7 @@
+    PID             Up    Down   Name                    CMD
+3590810   2d1h45m25.4s           [0;32mcrawler_binance      [0;00m   /bin/bash /home/ec2-user/immortal/wrapped_cmd.sh
+3671682     9h37m50.8s           [0;32mcrawler_bitflyer     [0;00m   /bin/bash /home/ec2-user/immortal/wrapped_cmd.sh
+3671700     9h37m50.0s           [0;32mcrawler_bitflyer_spot[0;00m   /bin/bash /home/ec2-user/immortal/wrapped_cmd.sh
+3588171   2d2h58m17.6s           [0;32mcrawler_coincheck    [0;00m   /bin/bash /home/ec2-user/immortal/wrapped_cmd.sh
+3532745                  15.4s   [0;31mshannon_gmo          [0;00m   /bin/bash /home/ec2-user/immortal/wrapped_cmd.sh
+3671721     9h37m47.3s           [0;32mtracing_mm_bitflyer  [0;00m   /bin/bash /home/ec2-user/immortal/wrapped_cmd.sh

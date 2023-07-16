@@ -38,7 +38,6 @@ pub async fn start_shannon_gmo(config: &ShannonConfig) {
     
     BALANCE.set(RwLock::new(Balance::new(config.symbol.clone()))).unwrap();
     let symbol_ref1 = config.symbol.clone();
-    let symbol_ref2 = config.symbol.clone();
     let virtual_amount_ref = config.virtual_amount.clone();
 
     let client = GmoClient::new(Some(CREDENTIALS.gmo.clone()));
@@ -48,18 +47,11 @@ pub async fn start_shannon_gmo(config: &ShannonConfig) {
         _ = spawn(async move {
             let symbol = symbol_ref1.clone();
             loop {
-                sleep_until_next(ScheduleExpr::new(Duration::minutes(5), Duration::minutes(0))).await;
+                sleep_until_next(ScheduleExpr::new(Duration::hours(8), Duration::minutes(0))).await;
                 update_assets(&client, &symbol).await.pipe(capture_result(&symbol));
                 cancel_all_orders(&client, &symbol).await.pipe(capture_result(&symbol));
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 create_order(&client, &symbol, &virtual_amount).await.pipe(capture_result(&symbol));
-            }
-        }) => {}
-        _ = spawn(async move {
-            let symbol = symbol_ref2.clone();
-            loop {
-                sleep_until_next(ScheduleExpr::new(Duration::hours(1), Duration::minutes(58))).await;
-                report(&symbol).await.pipe(capture_result(&symbol));
             }
         }) => {}
     }
@@ -171,11 +163,4 @@ async fn create_order(client: &GmoClient, symbol: &Symbol, virtual_amount: &Virt
     }
     
     Ok(())
-}
-
-async fn report(symbol: &Symbol) -> Result<()> {
-    let balance = BALANCE.get().context("BALANCE failed")?.read();
-    let subject = format!("Bot {} {}", symbol.exc, symbol.to_native());
-    let body = format!("Balance: {} {}", balance.base, balance.quote);
-    send_mail(subject, body)
 }
