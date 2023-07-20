@@ -98,11 +98,17 @@ pub fn JST() -> FixedOffset {
     FixedOffset::east_opt(9 * 60 * 60).unwrap()
 }
 
-pub fn floor_time(timestamp: DateTime<Utc>, timeframe: Duration, unit_delta:i64)-> DateTime<Utc> {
+pub fn floor_time_sec(timestamp: DateTime<Utc>, timeframe: Duration, unit_delta:i64) -> i64 {
     let timeframe_sec = timeframe.num_seconds();
     let mut unix_sec = timestamp.timestamp();
     unix_sec = unix_sec / timeframe_sec * timeframe_sec;
     unix_sec += unit_delta * timeframe_sec;
+    unix_sec
+}
+
+/// timeframeの最小単位はsecond
+pub fn floor_time(timestamp: DateTime<Utc>, timeframe: Duration, unit_delta:i64)-> DateTime<Utc> {
+    let unix_sec = floor_time_sec(timestamp, timeframe, unit_delta);
     datetime_utc_from_timestamp(unix_sec, UnixTimeUnit::Second)
 }
 

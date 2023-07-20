@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use url::Url;
 
-use crate::{order_types::Side, symbol::Symbol, error_types::BotError, data_structure::float_exp::FloatExp};
+use crate::{order_types::Side, symbol::Symbol, error_types::BotError, data_structure::float_exp::FloatExp, utils::time::datetime_utc};
 
 use super::{credentials::ApiCredentials, method::{make_header, GetRequest, get, post, HasPath, post_no_parse}, auth::bitflyer_auth, types::TradeRecord};
 
@@ -114,7 +114,8 @@ pub struct ExecutionItem {
     pub side: Side,
     pub price: f64,
     pub size: f64,
-    pub exec_date: ExecDate,
+    #[serde(deserialize_with = "deserialize_rfc3339")]
+    pub exec_date: DateTime<Utc>,
     pub buy_child_order_acceptance_id: String,
     pub sell_child_order_acceptance_id: String,
 }
@@ -123,7 +124,7 @@ impl ExecutionItem {
     pub fn to_trade_record(&self, symbol: Symbol) -> TradeRecord {
         TradeRecord::new(
             symbol,
-            self.exec_date.0.timestamp_millis(),
+            self.exec_date.timestamp_millis(),
             self.price,
             self.size,
             self.side,
@@ -131,11 +132,7 @@ impl ExecutionItem {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ExecDate(pub DateTime<Utc>);
-
-impl<'de> Deserialize<'de> for ExecDate {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+fn deserialize_rfc3339<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -143,8 +140,46 @@ impl<'de> Deserialize<'de> for ExecDate {
         let datetime = DateTime::parse_from_rfc3339(&s)
             .map_err(serde::de::Error::custom)?
             .with_timezone(&Utc);
-        Ok(ExecDate(datetime))
+        Ok(datetime)
     }
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct BoardResult {
+    pub mid_price: f64,
+    pub bids: Vec<PriceSizePair>,
+    pub asks: Vec<PriceSizePair>,
+}
+
+impl BoardResult {
+    pub fn by_side(&self, side: Side) -> &Vec<PriceSizePair> {
+        match side {
+            Side::Buy => &self.bids,
+            Side::Sell => &self.asks,
+        }
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct PriceSizePair {
+    pub price: f64,
+    pub size: f64,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct TickerResult {
+    pub product_code: String,
+    #[serde(deserialize_with = "deserialize_rfc3339")]
+    pub timestamp: DateTime<Utc>,
+    pub tick_id: i64,
+    pub best_bid: f64,
+    pub best_ask: f64,
+    pub best_bid_size: f64,
+    pub best_ask_size: f64,
+    pub total_bid_depth: f64,
+    pub total_ask_depth: f64,
+    pub ltp: f64,
+    pub volume: f64,
+    pub volume_by_product: f64,
 }
 
 pub struct GetPositionRequest {
@@ -287,4 +322,29 @@ pub struct TickerResponse {
     pub ltp: f64,
     pub volume: f64,
     pub volume_by_product: f64,
+}
+
+#[test]
+fn test_ticker_result() {
+    use chrono::Datelike;
+    let obj = serde_json::json!({
+        "product_code": "BTC_JPY",
+        "timestamp": "2019-04-11T05:14:12.3739915Z",
+        "state": "RUNNING",
+        "tick_id": 25965446,
+        "best_bid": 580006,
+        "best_ask": 580771,
+        "best_bid_size": 2.00000013,
+        "best_ask_size": 0.4,
+        "total_bid_depth": 1581.64414981,
+        "total_ask_depth": 1415.32079982,
+        "market_bid_size": 0,
+        "market_ask_size": 0,
+        "ltp": 580790,
+        "volume": 6703.96837634,
+        "volume_by_product": 6703.96837634
+      });
+    let res: TickerResult = serde_json::from_value(obj).unwrap();
+    assert_eq!(res.product_code, "BTC_JPY");
+    assert_eq!(res.timestamp.year(), 2019);
 }

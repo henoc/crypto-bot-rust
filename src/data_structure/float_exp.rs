@@ -1,9 +1,8 @@
 use std::{ops::{Add, Sub, Mul, AddAssign, SubAssign, Div}, fmt::{Display, Debug}, str::FromStr};
 
-use chrono::format;
 use serde::Serialize;
 
-#[derive(Clone, Copy, Eq)]
+#[derive(Clone, Copy, Eq, Hash)]
 pub struct FloatExp {
     pub value: i64,
     pub exp: i32,

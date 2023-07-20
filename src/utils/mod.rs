@@ -8,3 +8,4 @@ pub mod kline_mmap;
 pub mod reserved_orders;
 pub mod tracingmm_utils;
 pub mod useful_traits;
+pub mod orderbook_repository;

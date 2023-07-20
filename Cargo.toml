@@ -29,6 +29,7 @@ tap = "1.0.1"
 thiserror = "1.0.40"
 tokio = { version = "1.27.0", features = ["full"] }
 tokio-tungstenite = { version = "0.18.0", features = ["rustls-tls-webpki-roots"] }
+tokio-stream = "0.1.14"
 url = "2.3.1"
 polars = { version = "0.28.0", features = [
     "dtype-datetime", "timezones", "parquet",

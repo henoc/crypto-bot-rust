@@ -19,3 +19,14 @@ impl<T> StaticVarExt<T> for OnceCell<RwLock<T>> {
         self.get().unwrap().write()
     }
 }
+
+pub trait StaticVarVecExt<T> {
+    fn drain(&self) -> Vec<T>;
+}
+
+impl<T> StaticVarVecExt<T> for OnceCell<RwLock<Vec<T>>> {
+    /// get().unwrap().write().drain(..).collect()
+    fn drain(&self) -> Vec<T> {
+        self.write().drain(..).collect()
+    }
+}

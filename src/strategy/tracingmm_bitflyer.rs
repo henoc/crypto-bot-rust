@@ -24,8 +24,6 @@ const MAX_SIDE_POSITIONS: i64 = 3;
 
 const MAPPING_SIZE: i64 = 100;
 
-const PRICE_EXP: i32 = 0;
-const AMOUNT_EXP: i32 = -8;
 
 /// 0.01
 const ORDER_MIN_AMOUNT: FloatExp = FloatExp::new(1, -2);
@@ -40,8 +38,8 @@ pub async fn start_tracingmm_bitflyer(config: &'static TracingMMConfig, check: b
     KLINE.set(RwLock::new(KLineMMap::new(config.symbol, config.timeframe.0, 300).unwrap())).unwrap();
     REF_KLINE.set(RwLock::new(KLineMMap::new(config.ref_symbol, config.timeframe.0, 300).unwrap())).unwrap();
     SPOT_KLINE.set(RwLock::new(KLineMMap::new(SPOT_SYMBOL, config.timeframe.0, 300).unwrap())).unwrap(); // sfd
-    POS.set(RwLock::new([TracingMMPosition::new(PRICE_EXP, AMOUNT_EXP), TracingMMPosition::new(PRICE_EXP, AMOUNT_EXP)])).unwrap();
-    RESERVED.set(RwLock::new(ReservedOrdersManager::new(PRICE_EXP))).unwrap();
+    POS.set(RwLock::new([TracingMMPosition::new(config.symbol.price_precision(), config.symbol.amount_precision()), TracingMMPosition::new(config.symbol.price_precision(), config.symbol.amount_precision())])).unwrap();
+    RESERVED.set(RwLock::new(ReservedOrdersManager::new(config.symbol.price_precision()))).unwrap();
 
     let symbol = config.symbol;
     let timeframe = config.timeframe.0;
@@ -85,17 +83,17 @@ async fn update_position(client: &BitflyerClient, symbol: Symbol) -> anyhow::Res
     let res = client.get_private(GetPositionRequest {
         product_code: symbol.to_native(),
     }).await?;
-    let mut next_pos = [TracingMMPosition::new(PRICE_EXP, AMOUNT_EXP), TracingMMPosition::new(PRICE_EXP, AMOUNT_EXP)];
+    let mut next_pos = [TracingMMPosition::new(symbol.price_precision(), symbol.amount_precision()), TracingMMPosition::new(symbol.price_precision(), symbol.amount_precision())];
     for pos_detail in res {
         let idx = pos_detail.side as usize;
-        next_pos[idx].pos += FloatExp::from_f64(pos_detail.size, AMOUNT_EXP);
-        next_pos[idx].init_notional += FloatExp::from_f64(pos_detail.price, PRICE_EXP) * FloatExp::from_f64(pos_detail.size, AMOUNT_EXP);
+        next_pos[idx].pos += FloatExp::from_f64(pos_detail.size, symbol.amount_precision());
+        next_pos[idx].init_notional += FloatExp::from_f64(pos_detail.price, symbol.price_precision()) * FloatExp::from_f64(pos_detail.size, symbol.amount_precision());
     }
     for idx in 0..2 {
         next_pos[idx].entry_price = if next_pos[idx].pos.is_zero() {
-            FloatExp::new(0, PRICE_EXP)
+            FloatExp::new(0, symbol.price_precision())
         } else {
-            (next_pos[idx].init_notional / next_pos[idx].pos).round(PRICE_EXP)
+            (next_pos[idx].init_notional / next_pos[idx].pos).round(symbol.price_precision())
         };
     }
     info!("update position: {:?}", next_pos);
@@ -144,7 +142,7 @@ fn get_sfd(klines: &KLines, spot_klines: &KLines, timeframe: Duration) -> anyhow
 
 async fn send_new_orders(client: &BitflyerClient, config: &TracingMMConfig, prices: &TracingPriceResult, sfd: f64) -> anyhow::Result<()> {
     let pos = POS.read().clone();
-    let last_close = FloatExp::from_f64(prices.last_close, PRICE_EXP);
+    let last_close = FloatExp::from_f64(prices.last_close, config.symbol.price_precision());
     let mut close_orders = vec![];
     let mut open_orders = vec![];
     // close order
@@ -152,7 +150,7 @@ async fn send_new_orders(client: &BitflyerClient, config: &TracingMMConfig, pric
         if pos[side.inv() as usize].pos.is_zero() {
             continue;
         }
-        let price = FloatExp::from_f64(prices.by_side(side).out, PRICE_EXP);
+        let price = FloatExp::from_f64(prices.by_side(side).out, config.symbol.price_precision());
         close_orders.push(close_order(client, config, side, price, pos[side.inv() as usize].pos, last_close));
     }
     // open order
@@ -162,7 +160,7 @@ async fn send_new_orders(client: &BitflyerClient, config: &TracingMMConfig, pric
             info!("SFD is out of range. side: {:?}, SFD: {}", side, sfd);
             continue;
         }
-        let price = FloatExp::from_f64(prices.by_side(side).r#in, PRICE_EXP);
+        let price = FloatExp::from_f64(prices.by_side(side).r#in, config.symbol.price_precision());
         let amount = next_open_amount(&config.symbol, side, price);
         if let Some(amount) = amount {
             open_orders.push(open_order(client, config, side, price, amount, last_close));
@@ -183,7 +181,7 @@ fn next_open_amount(symbol: &Symbol, side: Side, price: FloatExp) -> Option<Floa
 
     let init_notional = POS.read()[side as usize].init_notional.to_f64();
     if init_notional + order_amount * price.to_f64() < quote_for_order {
-        Some(FloatExp::from_f64(order_amount, AMOUNT_EXP))
+        Some(FloatExp::from_f64(order_amount, symbol.amount_precision()))
     } else {
         info!("next_open_amount not enough quote. side: {:?}, quote_for_order: {}, init_notional: {}, order_amount: {}", side, quote_for_order, init_notional, order_amount);
         None

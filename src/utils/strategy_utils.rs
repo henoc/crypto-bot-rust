@@ -3,13 +3,14 @@ use std::{collections::HashMap, env, process::exit};
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use chrono::Duration;
-use futures::{stream::SplitSink, SinkExt};
+use futures::{stream::SplitSink, SinkExt, Sink, channel::mpsc::UnboundedReceiver, StreamExt};
 use hyper::StatusCode;
 use log::info;
 use once_cell::sync::OnceCell;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tap::Pipe;
 use tokio::{spawn, net::TcpStream};
+use tokio_stream::StreamMap;
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream, tungstenite::Message};
 
 use crate::{symbol::{Symbol, Exchange}, client::{mail::send_mail, types::KLines}, error_types::BotError, utils::time::{UnixTimeUnit, now_floor_time}, config::KLineBuilderConfig, data_structure::float_exp::FloatExp, order_types::{PosSide, Side}};
@@ -64,12 +65,22 @@ impl CaptureResult for anyhow::Result<()> {
 }
 
 /// aiohttpのheartbeat相当。こちらからpingを送信する。pong確認で接続検査が必要かも
-pub async fn start_send_ping(symbol: Symbol, mut write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>) {
+pub async fn start_send_ping<E: Into<anyhow::Error> + Send, T: Sink<Message, Error = E> + Unpin + Send + 'static>(symbol: Symbol, mut sink: T) {
     spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-            write.send(Message::Ping(vec![])).await.map_err(|e| anyhow!(e)).capture_result(symbol).await.unwrap();
+            sink.send(Message::Ping(vec![])).await.map_err(|e| anyhow!(e)).capture_result(symbol).await.unwrap();
         }
+    });
+}
+
+pub fn connect_into_sink<E: Into<anyhow::Error> + Send, T: Sink<Message, Error = E> + Unpin + Send + 'static>(symbol: Symbol, mut sink: T, streams: Vec<UnboundedReceiver<Message>>) {
+    let mut all = StreamMap::new();
+    for (i, rdr) in streams.into_iter().enumerate() {
+        all.insert(i, rdr);
+    }
+    spawn(async move {
+        sink.send_all(&mut all.map(|(_, x)| Ok(x))).await.map_err(|e| anyhow!(e)).capture_result(symbol).await.unwrap();
     });
 }
 

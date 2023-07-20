@@ -28,7 +28,7 @@ use crate::data_structure::num_utils::floor_int;
 use crate::error_types::BotError;
 use crate::order_types::OrderType;
 use crate::order_types::Side;
-use crate::symbol::{Symbol, SymbolPrecision};
+use crate::symbol::{Symbol};
 use crate::utils::time::ScheduleExpr;
 use crate::utils::time::sleep_until_next;
 

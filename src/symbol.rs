@@ -100,6 +100,30 @@ impl Symbol {
     pub fn to_file_form(&self) -> String {
         format!("{}-{}-{}-{}", self.exc, self.base, self.quote, self.r#type)
     }
+
+    #[inline]
+    pub const fn amount_precision(&self) -> i32 {
+        match self.exc {
+            Exchange::Gmo => match self.r#type {
+                SymbolType::Perp => -2,
+                SymbolType::Spot => -4,
+            },
+            Exchange::Bitflyer => -8,
+            _ => panic!("not implemented"),
+        }
+    }
+
+    #[inline]
+    pub const fn price_precision(&self) -> i32 {
+        match self.exc {
+            Exchange::Gmo => match self.r#type {
+                SymbolType::Perp => 0,
+                SymbolType::Spot => 0,
+            },
+            Exchange::Bitflyer => 0,
+            _ => panic!("not implemented"),
+        }
+    }
 }
 
 impl Serialize for Symbol {
@@ -108,28 +132,5 @@ impl Serialize for Symbol {
         S: serde::Serializer,
     {
         serializer.serialize_str(&self.to_native())
-    }
-}
-
-#[ext(SymbolPrecision)]
-pub impl Symbol {
-    fn amount_precision(&self) -> i32 {
-        match self.exc {
-            Exchange::Gmo => match self.r#type {
-                SymbolType::Perp => -2,
-                SymbolType::Spot => -4,
-            },
-            _ => panic!("not implemented"),
-        }
-    }
-
-    fn price_precision(&self) -> i32 {
-        match self.exc {
-            Exchange::Gmo => match self.r#type {
-                SymbolType::Perp => 0,
-                SymbolType::Spot => 0,
-            },
-            _ => panic!("not implemented"),
-        }
     }
 }
