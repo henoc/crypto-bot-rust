@@ -17,7 +17,10 @@ use crate::{utils::{kline_mmap::KLineMMap, strategy_utils::{show_kline_mmap, sta
 static KLINE_MMAP: OnceCell<RwLock<HashMap<Duration, KLineMMap>>> = OnceCell::new();
 
 pub async fn start_crawler_binance(config: &CrawlerConfig, check: bool) {
-    let symbol = config.symbol;
+    if config.symbols.len() != 1 {
+        panic!("Only one symbol is supported");
+    }
+    let symbol = config.symbols[0];
     let kline_config = config.kline_builder.clone();
 
     KLINE_MMAP.set(RwLock::new(

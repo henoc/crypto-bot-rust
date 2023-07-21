@@ -56,7 +56,7 @@ impl CaptureResult for anyhow::Result<()> {
                     },
                     _ => {},
                 }
-                send_mail(format!("{} - {} {}", e, env::var("NAME").unwrap(), symbol.to_file_form()), format!("{:?}", e)).unwrap();
+                send_mail(format!("{} - {}", e, env::var("NAME").unwrap()), format!("{:?}", e)).unwrap();
                 return Err(e);
             }
             _ => return Ok(()),

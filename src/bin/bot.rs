@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
             bot::strategy::tracingmm_bitflyer::start_tracingmm_bitflyer(strategy_config, args.check).await;
         },
         Strategy::Crawler(strategy_config) => {
-            match strategy_config.symbol.exc {
+            match strategy_config.symbols[0].exc {
                 Exchange::Coincheck => {
                     bot::strategy::crawler_coincheck::start_crawler_coincheck().await;
                 },
@@ -48,8 +48,11 @@ async fn main() -> anyhow::Result<()> {
                 Exchange::Binance => {
                     bot::strategy::crawler_binance::start_crawler_binance(strategy_config, args.check).await;
                 },
+                Exchange::Gmo => {
+                    bot::strategy::crawler_gmo::start_crawler_gmo(strategy_config).await;
+                }
                 _ => {
-                    anyhow::bail!("{} is not supported", strategy_config.symbol.exc);
+                    anyhow::bail!("{} is not supported", strategy_config.symbols[0].exc);
                 }
             }
         },

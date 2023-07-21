@@ -36,7 +36,7 @@ pub fn load_config() -> Result<Config> {
 
 #[derive(Debug, Deserialize)]
 pub struct CrawlerConfig {
-    pub symbol: Symbol,
+    pub symbols: Vec<Symbol>,
     pub kline_builder: Vec<KLineBuilderConfig>
 }
 

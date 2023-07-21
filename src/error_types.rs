@@ -11,4 +11,6 @@ pub enum BotError {
     Maintenance,
     #[error("Margin insufficient")]
     MarginInsufficiency,
+    #[error("Too many request in websocket")]
+    WsTooManyRequest,
 }

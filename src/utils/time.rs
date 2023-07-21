@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc, TimeZone, NaiveDateTime, FixedOffset, Duration};
+use serde::{Deserializer, Deserialize};
 
 pub struct ScheduleExpr {
     q: Duration,
@@ -115,6 +116,17 @@ pub fn floor_time(timestamp: DateTime<Utc>, timeframe: Duration, unit_delta:i64)
 pub fn now_floor_time(timeframe: Duration, unit_delta:i64)-> DateTime<Utc> {
     floor_time(Utc::now(), timeframe, unit_delta)
 }
+
+pub fn deserialize_rfc3339<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let datetime = DateTime::parse_from_rfc3339(&s)
+            .map_err(serde::de::Error::custom)?
+            .with_timezone(&Utc);
+        Ok(datetime)
+    }
 
 #[test]
 fn test_next_sleep_duration_ms() {

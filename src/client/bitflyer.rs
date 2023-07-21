@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use url::Url;
 
-use crate::{order_types::Side, symbol::Symbol, error_types::BotError, data_structure::float_exp::FloatExp, utils::time::datetime_utc};
+use crate::{order_types::Side, symbol::Symbol, error_types::BotError, data_structure::float_exp::FloatExp, utils::time::{datetime_utc, deserialize_rfc3339}};
 
 use super::{credentials::ApiCredentials, method::{make_header, GetRequest, get, post, HasPath, post_no_parse}, auth::bitflyer_auth, types::TradeRecord};
 
@@ -131,17 +131,6 @@ impl ExecutionItem {
         )
     }
 }
-
-fn deserialize_rfc3339<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        let datetime = DateTime::parse_from_rfc3339(&s)
-            .map_err(serde::de::Error::custom)?
-            .with_timezone(&Utc);
-        Ok(datetime)
-    }
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct BoardResult {

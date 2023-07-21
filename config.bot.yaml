@@ -34,45 +34,69 @@ tracing_mm_bitflyer:
     out: 1.6352887880856914
   losscut_rate: 0.07669143101596552
   exit_mean_frame: 45
+crawler_gmo:
+  strategy: crawler
+  symbols:
+    - base: BTC
+      quote: JPY
+      settlement: JPY
+      type: perp
+      exc: gmo
+    - base: BTC
+      quote: JPY
+      settlement: JPY
+      type: spot
+      exc: gmo
+    - base: XRP
+      quote: JPY
+      settlement: JPY
+      type: perp
+      exc: gmo
+    - base: XRP
+      quote: JPY
+      settlement: JPY
+      type: spot
+      exc: gmo
+  kline_builder: []
 crawler_coincheck:
   strategy: crawler
-  symbol:
-    base: BTC
-    quote: JPY
-    settlement: JPY
-    type: spot
-    exc: coincheck
+  symbols:
+    - base: BTC
+      quote: JPY
+      settlement: JPY
+      type: spot
+      exc: coincheck
   kline_builder: []
 crawler_bitflyer:
   strategy: crawler
-  symbol:
-    base: BTC
-    quote: JPY
-    settlement: JPY
-    type: perp
-    exc: bitflyer
+  symbols:
+    - base: BTC
+      quote: JPY
+      settlement: JPY
+      type: perp
+      exc: bitflyer
   kline_builder:
     - timeframe: 150s
       len: 300
 crawler_bitflyer_spot:
   strategy: crawler
-  symbol:
-    base: BTC
-    quote: JPY
-    settlement: JPY
-    type: spot
-    exc: bitflyer
+  symbols:
+    - base: BTC
+      quote: JPY
+      settlement: JPY
+      type: spot
+      exc: bitflyer
   kline_builder:
     - timeframe: 150s
       len: 300
 crawler_binance:
   strategy: crawler
-  symbol:
-    base: BTC
-    quote: USDT
-    settlement: USDT
-    type: spot
-    exc: binance
+  symbols:
+    - base: BTC
+      quote: USDT
+      settlement: USDT
+      type: spot
+      exc: binance
   kline_builder:
     - timeframe: 150s
       len: 300

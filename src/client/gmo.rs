@@ -1,9 +1,12 @@
+use std::str::FromStr;
+
 use anyhow::{bail};
+use chrono::{DateTime, Utc};
 use hyper::{Method, HeaderMap};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Deserializer};
 use serde_json::{Value};
 
-use crate::{symbol::{Symbol, Currency}, order_types::{Side, OrderType}, error_types::BotError};
+use crate::{symbol::{Symbol, Currency, SymbolType, Exchange}, order_types::{Side, OrderType}, error_types::BotError, utils::time::deserialize_rfc3339};
 
 use super::{method::{make_header, get, post, GetRequest}, credentials::ApiCredentials, auth::gmo_coin_auth};
 
@@ -126,6 +129,68 @@ pub struct CreateOrderRequest {
     pub time_in_force: Option<GmoTimeInForce>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum WsResponse {
+    Ok(WsOkResponse),
+    Err(WsErrResponse),
+}
+
+#[derive(Debug, Deserialize)]
+/// {"error":"ERR-5003 Request too many."}
+pub struct WsErrResponse {
+    pub error: String,
+}
+
+impl WsErrResponse {
+    pub fn is_too_many_request(&self) -> bool {
+        self.error.contains("Request too many")
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "channel", rename_all = "camelCase")]
+pub enum WsOkResponse {
+    Orderbooks(OrderbooksResult),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OrderbooksResult {
+    pub asks: Vec<PriceSizePair>,
+    pub bids: Vec<PriceSizePair>,
+    #[serde(deserialize_with = "deserialize_gmo_symbol")]
+    pub symbol: Symbol,
+    #[serde(deserialize_with = "deserialize_rfc3339")]
+    pub timestamp: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PriceSizePair {
+    pub price: String,
+    pub size: String,
+}
+
+
+fn deserialize_gmo_symbol<'de, D>(deserializer: D) -> Result<Symbol, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let cs = s.split("_").collect::<Vec<_>>();
+        if cs.len() >= 3 || cs.len() == 0 {
+            return Err(serde::de::Error::custom("invalid symbol"));
+        }
+        let (base, quote, r#type) = if cs.len() == 1 {
+            (Currency::from_str(cs[0]).map_err(serde::de::Error::custom)?,
+                Currency::JPY,
+                SymbolType::Spot)
+        } else {
+            (Currency::from_str(cs[0]).map_err(serde::de::Error::custom)?,
+                Currency::from_str(cs[1]).map_err(serde::de::Error::custom)?,
+                SymbolType::Perp)
+        };
+        Ok(Symbol::new(base, quote, r#type, Exchange::Gmo))
+    }
 
 #[tokio::test]
 async fn test_gmo_client() {
@@ -162,4 +227,14 @@ async fn test_gmo_client_order() {
         time_in_force: None,
     }).await.unwrap();
     println!("{:?}", res);
+}
+
+#[test]
+fn test_ws_response() {
+    let s = r#"{"channel":"orderbooks","symbol":"BTC_JPY","timestamp":"2021-08-01T12:00:00.000Z","bids":[{"price":"1000000","size":"0.1"},{"price":"2000000","size":"0.2"}],"asks":[{"price":"3000000","size":"0.3"},{"price":"4000000","size":"0.4"}]}"#;
+    let parsed: WsResponse = serde_json::from_str(s).unwrap();
+    assert!(matches!(parsed, WsResponse::Ok(_)));
+    let s = r#"{"error":"ERR-5003 Request too many."}"#;
+    let parsed: WsResponse = serde_json::from_str(s).unwrap();
+    assert!(matches!(parsed, WsResponse::Err(_)));
 }

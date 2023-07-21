@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use easy_ext::ext;
 use serde::{Deserialize, Serialize};
+use strum::EnumString;
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Hash, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
@@ -43,9 +44,10 @@ impl Display for SymbolType {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Deserialize, Serialize, EnumString, Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Currency {
     BTC,
+    XRP,
     JPY,
     USDT,
 }
@@ -104,9 +106,12 @@ impl Symbol {
     #[inline]
     pub const fn amount_precision(&self) -> i32 {
         match self.exc {
-            Exchange::Gmo => match self.r#type {
-                SymbolType::Perp => -2,
-                SymbolType::Spot => -4,
+            Exchange::Gmo => match (self.base, self.r#type) {
+                (Currency::BTC, SymbolType::Perp) => -2,
+                (Currency::BTC, SymbolType::Spot) => -4,
+                (Currency::XRP, SymbolType::Perp) => 1,
+                (Currency::XRP, SymbolType::Spot) => 0,
+                _ => panic!("not implemented"),
             },
             Exchange::Bitflyer => -8,
             _ => panic!("not implemented"),
@@ -116,9 +121,10 @@ impl Symbol {
     #[inline]
     pub const fn price_precision(&self) -> i32 {
         match self.exc {
-            Exchange::Gmo => match self.r#type {
-                SymbolType::Perp => 0,
-                SymbolType::Spot => 0,
+            Exchange::Gmo => match self.base {
+                Currency::BTC => 0,
+                Currency::XRP => -3,
+                _ => panic!("not implemented"),
             },
             Exchange::Bitflyer => 0,
             _ => panic!("not implemented"),

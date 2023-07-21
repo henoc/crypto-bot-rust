@@ -13,6 +13,19 @@ pub struct OrderbookBest {
     pub snapshot: [[(f64,f64);5];2],
 }
 
+pub fn orderbook_best_time_fn(value: &OrderbookBest) -> Option<DateTime<Utc>> {
+    Some(value.timestamp)
+}
+
+impl OrderbookBest {
+    pub fn new(timestamp: DateTime<Utc>, snapshot: [[(f64,f64);5];2]) -> Self {
+        Self {
+            timestamp,
+            snapshot,
+        }
+    }
+}
+
 impl Serialize for OrderbookBest {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
         (self.timestamp.timestamp_millis(), self.snapshot).serialize(serializer)
@@ -30,6 +43,7 @@ pub struct OrderbookRepository {
 }
 
 impl OrderbookRepository {
+    #[inline]
     pub fn new(timeframe: Duration) -> Self {
         Self {
             state: vec![BTreeMap::new(), BTreeMap::new()],
@@ -38,6 +52,16 @@ impl OrderbookRepository {
         }
     }
 
+    #[inline]
+    pub fn new_with_state(timeframe: Duration, state: Vec<BTreeMap<FloatExp, FloatExp>>) -> Self {
+        Self {
+            state,
+            prev_time: Utc::now(),
+            timeframe,
+        }
+    }
+
+    #[inline]
     pub fn replace_state(&mut self, snapshot: Vec<BTreeMap<FloatExp, FloatExp>>) {
         self.state = snapshot;
     }

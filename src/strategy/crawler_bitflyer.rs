@@ -10,7 +10,7 @@ use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{config::{KLineBuilderConfig, CrawlerConfig}, utils::{strategy_utils::{start_send_ping, show_kline_mmap, start_flush_kline_mmap, CaptureResult, connect_into_sink}, kline_mmap::KLineMMap, time::{sleep_until_next, ScheduleExpr, UnixTimeUnit, datetime_utc_from_timestamp}, useful_traits::{StaticVarExt, StaticVarVecExt}, orderbook_repository::{OrderbookRepository, OrderbookBest}, record_writer::SerialRecordWriter, status_repository::StatusRepository}, symbol::Symbol, client::{types::{MpackTradeRecord, trades_time_fn}, bitflyer::{WsResponse, ExecutionItem, BoardResult}}, data_structure::float_exp::FloatExp, order_types::Side};
+use crate::{config::{KLineBuilderConfig, CrawlerConfig}, utils::{strategy_utils::{start_send_ping, show_kline_mmap, start_flush_kline_mmap, CaptureResult, connect_into_sink}, kline_mmap::KLineMMap, time::{sleep_until_next, ScheduleExpr, UnixTimeUnit, datetime_utc_from_timestamp}, useful_traits::{StaticVarExt, StaticVarVecExt}, orderbook_repository::{OrderbookRepository, OrderbookBest, orderbook_best_time_fn}, record_writer::SerialRecordWriter, status_repository::StatusRepository}, symbol::Symbol, client::{types::{MpackTradeRecord, trades_time_fn}, bitflyer::{WsResponse, ExecutionItem, BoardResult}}, data_structure::float_exp::FloatExp, order_types::Side};
 
 static KLINE_MMAP: OnceCell<RwLock<HashMap<Duration, KLineMMap>>> = OnceCell::new();
 static ORDERBOOK: OnceCell<RwLock<OrderbookRepository>> = OnceCell::new();
@@ -20,7 +20,10 @@ static STATUS: OnceCell<RwLock<StatusRepository>> = OnceCell::new();
 static TRADE_RECORD: OnceCell<RwLock<Vec<MpackTradeRecord>>> = OnceCell::new();
 
 pub async fn start_crawler_bitflyer(config: &CrawlerConfig, check: bool) {
-    let symbol = config.symbol;
+    if config.symbols.len() != 1 {
+        panic!("Only one symbol is supported");
+    }
+    let symbol = config.symbols[0];
     let kline_config = config.kline_builder.clone();
 
     KLINE_MMAP.set(RwLock::new(
@@ -184,10 +187,6 @@ async fn handle_trades_msg(msg: Message, symbol: &Symbol, kline_config: &Vec<KLi
         anyhow::bail!("Unknown channel: {}", parsed.params.channel);
     }
     Ok(())
-}
-
-fn orderbook_best_time_fn(value: &OrderbookBest) -> Option<DateTime<Utc>> {
-    Some(value.timestamp)
 }
 
 /// orderbook_bestをmsgpackで書き出し、stateにサーバー時刻を記録する

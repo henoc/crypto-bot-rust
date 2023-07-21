@@ -1,0 +1,13 @@
+cmd: /bin/bash /home/ec2-user/immortal/wrapped_cmd.sh
+cwd: /home/ec2-user
+env:
+  CMD: /home/ec2-user/bot --name crawler_gmo
+  HOME: /home/ec2-user
+  RUST_BACKTRACE: full
+require_cmd: test $(hostname) = s3
+log:
+  file: /home/ec2-user/logs/crawler_gmo.log
+  # age: 86400  # seconds
+  num: 7      # files
+  size: 10    # MegaBytes
+  timestamp: false
