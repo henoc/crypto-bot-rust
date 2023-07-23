@@ -15,7 +15,9 @@ sudo hostnamectl set-hostname s3
 # cron設定
 sudo yum install cronie
 sudo systemctl start crond.service
-sudo crontab -e     # 58 * * * * cd /home/ec2-user/; ./report >> /tmp/report.log 2>&1
+sudo crontab -e
+# 58 * * * * cd /home/ec2-user/; ./report >> /tmp/report.log 2>&1
+# 1 22 * * * cd /home/ec2-user/; ./transfer >> /tmp/transfer/log 2>&1
 ```
 
 ## クロスコンパイル

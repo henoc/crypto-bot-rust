@@ -99,6 +99,11 @@ pub fn JST() -> FixedOffset {
     FixedOffset::east_opt(9 * 60 * 60).unwrap()
 }
 
+pub fn today_jst() -> DateTime<FixedOffset> {
+    Utc::now().with_timezone(&JST()).date_naive().and_hms_opt(0, 0, 0).unwrap()
+        .and_local_timezone(JST()).unwrap()
+}
+
 pub fn floor_time_sec(timestamp: DateTime<Utc>, timeframe: Duration, unit_delta:i64) -> i64 {
     let timeframe_sec = timeframe.num_seconds();
     let mut unix_sec = timestamp.timestamp();
@@ -156,4 +161,9 @@ fn test_next_sleep_duration_ms() {
 fn test_format_time() {
     assert_eq!(format_time_naive(datetime_naive(2023, 1, 1, 0, 0, 5)), "2023-01-01T00:00:05+00:00".to_owned());
     assert_eq!(parse_format_time_naive("2023-01-01T00:00:05+00:00").unwrap(), datetime_naive(2023, 1, 1, 0, 0, 5));
+}
+
+#[test]
+fn test_today_jst() {
+    print!("{}", today_jst());
 }

@@ -28,7 +28,7 @@ fn parse_immotalctl_status(output: &str) -> anyhow::Result<(DataFrame, Vec<bool>
     let ansi_red = Regex::new(r"\x1B\[0;31m")?;
     let is_up = output.lines().skip(1).map(|line| !ansi_red.is_match(line)).collect::<Vec<_>>();
     let output = ansi_color.replace_all(output, "");
-    let immortalctl_line_re = Regex::new(r"^(\d+)\s+([\ddhms\.]+)\s+(\w+)\s+(.+)$").unwrap();
+    let immortalctl_line_re = Regex::new(r"^\s*(\d+)\s+([\ddhms\.]+)\s+(\w+)\s+(.+)$").unwrap();
     let mut ret = vec![vec![];4];
     for (line, &up) in output.lines().skip(1).zip(is_up.iter()) {
         let caps = immortalctl_line_re.captures(line).context(format!("failed to parse immortalctl status line: {}", line))?;
@@ -61,11 +61,15 @@ fn test_parse_immortalctl_status() {
 
 #[test]
 fn test_parse_immortalctl_line() {
+    let re = Regex::new(r"^\s*(\d+)\s+([\ddhms\.]+)\s+(\w+)\s+(.+)$").unwrap();
     let line = "3590810   1d12h46m57.4s          crawler_binance         /bin/bash /home/ec2-user/immortal/wrapped_cmd.sh";
-    let re = Regex::new(r"^(\d+)\s+([\ddhms\.]+)\s+(\w+)\s+(.+)$").unwrap();
     let caps = re.captures(line).unwrap();
     assert_eq!(caps.get(1).unwrap().as_str(), "3590810");
     assert_eq!(caps.get(2).unwrap().as_str(), "1d12h46m57.4s");
     assert_eq!(caps.get(3).unwrap().as_str(), "crawler_binance");
+    assert_eq!(caps.get(4).unwrap().as_str(), "/bin/bash /home/ec2-user/immortal/wrapped_cmd.sh");
+
+    let line = " 1860   21h47m52.4s          crawler_binance         /bin/bash /home/ec2-user/immortal/wrapped_cmd.sh";
+    let caps = re.captures(line).unwrap();
     assert_eq!(caps.get(4).unwrap().as_str(), "/bin/bash /home/ec2-user/immortal/wrapped_cmd.sh");
 }

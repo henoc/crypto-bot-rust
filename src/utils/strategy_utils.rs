@@ -39,14 +39,15 @@ impl CaptureResult for anyhow::Result<()> {
                     _ => {},
                 };
                 match e.downcast_ref::<tokio_tungstenite::tungstenite::Error>() {
-                    Some(wse) if symbol.exc == Exchange::Bitflyer => {
+                    Some(wse) if symbol.exc == Exchange::Bitflyer || symbol.exc == Exchange::Gmo => {
                         match wse {
                             tokio_tungstenite::tungstenite::Error::Http(res) => {
                                 match res.status() {
                                     StatusCode::SERVICE_UNAVAILABLE | StatusCode::BAD_GATEWAY => {
-                                        info!("Bitflyer websocket disconnected (5xx), wait 60s");
+                                        info!("{} websocket disconnected (5xx), wait 60s", symbol.exc);
                                         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-                                        // return Err(e);
+                                        std::env::remove_var("RUST_BACKTRACE");
+                                        return Err(e);
                                     },
                                     _ => {},
                                 }

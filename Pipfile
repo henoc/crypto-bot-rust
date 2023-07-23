@@ -6,9 +6,12 @@ name = "pypi"
 [packages]
 msgpack = "*"
 polars = "*"
+python-socketio = "*"
+aiohttp = "*"
+python-engineio = "*"
+pybotters = "*"
 
 [dev-packages]
 
 [requires]
 python_version = "3.11"
-python_full_version = "3.11.3"
