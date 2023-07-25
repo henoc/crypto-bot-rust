@@ -10,13 +10,13 @@ use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{utils::{kline_mmap::KLineMMap, strategy_utils::{show_kline_mmap, start_flush_kline_mmap, CaptureResult}}, config::{CrawlerConfig, KLineBuilderConfig}, symbol::{Symbol, SymbolType}, client::binance::WsAggTrade};
+use crate::{utils::{kline_mmap::KLineMMap, strategy_utils::{show_kline_mmap, start_flush_kline_mmap, CaptureResult}}, config::{CrawlerConfig, KLineBuilderConfig}, symbol::{Symbol, SymbolType}, client::binance::WsAggTrade, global_vars::is_debug};
 
 
 
 static KLINE_MMAP: OnceCell<RwLock<HashMap<Duration, KLineMMap>>> = OnceCell::new();
 
-pub async fn start_crawler_binance(config: &CrawlerConfig, check: bool) {
+pub async fn start_crawler_binance(config: &CrawlerConfig) {
     if config.symbols.len() != 1 {
         panic!("Only one symbol is supported");
     }
@@ -27,7 +27,7 @@ pub async fn start_crawler_binance(config: &CrawlerConfig, check: bool) {
         kline_config.iter().map(|c| (c.timeframe.0, KLineMMap::new(symbol, c.timeframe.0, c.len).unwrap())).collect()
     )).unwrap();
 
-    if check {
+    if is_debug() {
         show_kline_mmap(&KLINE_MMAP, &kline_config).unwrap();
         return;
     }

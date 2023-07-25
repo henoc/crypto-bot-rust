@@ -36,5 +36,5 @@ cross build --target x86_64-unknown-linux-gnu --verbose --release
 # ローカルでも起動できる
 sudo ./target/x86_64-unknown-linux-gnu/release/bot --name crawler_bitflyer
 # ステータスファイルの確認など
-sudo ./bot --name crawler_bitflyer --check
+sudo ./bot --name crawler_bitflyer --debug
 ```

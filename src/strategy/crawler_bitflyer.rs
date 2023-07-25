@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, env};
 
 use chrono::{Duration, DateTime, Utc};
 use futures::{StreamExt, SinkExt, channel::mpsc::{unbounded, UnboundedSender}};
@@ -10,7 +10,7 @@ use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{config::{KLineBuilderConfig, CrawlerConfig}, utils::{strategy_utils::{start_send_ping, show_kline_mmap, start_flush_kline_mmap, CaptureResult, connect_into_sink}, kline_mmap::KLineMMap, time::{sleep_until_next, ScheduleExpr, UnixTimeUnit, datetime_utc_from_timestamp}, useful_traits::{StaticVarExt, StaticVarVecExt}, orderbook_repository::{OrderbookRepository, OrderbookBest, orderbook_best_time_fn}, record_writer::SerialRecordWriter, status_repository::StatusRepository}, symbol::Symbol, client::{types::{MpackTradeRecord, trades_time_fn}, bitflyer::{WsResponse, ExecutionItem, BoardResult}}, data_structure::float_exp::FloatExp, order_types::Side};
+use crate::{config::{KLineBuilderConfig, CrawlerConfig}, utils::{strategy_utils::{start_send_ping, show_kline_mmap, start_flush_kline_mmap, CaptureResult, connect_into_sink}, kline_mmap::KLineMMap, time::{sleep_until_next, ScheduleExpr, UnixTimeUnit, datetime_utc_from_timestamp}, useful_traits::{StaticVarExt, StaticVarVecExt}, orderbook_repository::{OrderbookRepository, OrderbookBest, orderbook_best_time_fn}, record_writer::SerialRecordWriter, status_repository::StatusRepository, draw_orderbook::OrderbookDrawer, draw::init_terminal}, symbol::Symbol, client::{types::{MpackTradeRecord, trades_time_fn}, bitflyer::{WsResponse, ExecutionItem, BoardResult}}, data_structure::float_exp::FloatExp, order_types::Side, global_vars::{DEBUG, is_debug}};
 
 static KLINE_MMAP: OnceCell<RwLock<HashMap<Duration, KLineMMap>>> = OnceCell::new();
 static ORDERBOOK: OnceCell<RwLock<OrderbookRepository>> = OnceCell::new();
@@ -19,7 +19,10 @@ static SERVER_TIME: OnceCell<RwLock<ServerTimeState>> = OnceCell::new();
 static STATUS: OnceCell<RwLock<StatusRepository>> = OnceCell::new();
 static TRADE_RECORD: OnceCell<RwLock<Vec<MpackTradeRecord>>> = OnceCell::new();
 
-pub async fn start_crawler_bitflyer(config: &CrawlerConfig, check: bool) {
+// for debug
+static ORDERBOOK_DRAWER: OnceCell<RwLock<OrderbookDrawer>> = OnceCell::new();
+
+pub async fn start_crawler_bitflyer(config: &CrawlerConfig) {
     if config.symbols.len() != 1 {
         panic!("Only one symbol is supported");
     }
@@ -38,10 +41,9 @@ pub async fn start_crawler_bitflyer(config: &CrawlerConfig, check: bool) {
     })).unwrap();
     TRADE_RECORD.set(RwLock::new(Vec::new())).unwrap();
 
-    // ファイルの中身を表示する
-    if check {
-        show_kline_mmap(&KLINE_MMAP, &kline_config).unwrap();
-        return;
+    if is_debug() {
+        ORDERBOOK_DRAWER.set(RwLock::new(OrderbookDrawer::new(0, 0, config.symbols.clone()))).unwrap();
+        init_terminal().unwrap();
     }
 
     start_flush_kline_mmap(&KLINE_MMAP, symbol, &kline_config);
@@ -140,8 +142,8 @@ async fn handle_trades_msg(msg: Message, symbol: &Symbol, kline_config: &Vec<KLi
         info!("Board snapshot received");
         let board_snapshot = serde_json::from_value::<BoardResult>(parsed.params.message)?;
         let state = vec![
-            board_snapshot.bids.iter().map(|t| (FloatExp::from_f64(t.price, symbol.price_precision()), FloatExp::from_f64(t.size, symbol.amount_precision()))).collect(),
-            board_snapshot.asks.iter().map(|t| (FloatExp::from_f64(t.price, symbol.price_precision()), FloatExp::from_f64(t.size, symbol.amount_precision()))).collect(),
+            board_snapshot.bids.iter().map(|t| (t.price.into(), t.size.into())).collect(),
+            board_snapshot.asks.iter().map(|t| (t.price.into(), t.size.into())).collect(),
         ];
         ORDERBOOK.write().replace_state(state);
         // pybottersの実装準拠、pybottersは公式webの実装準拠らしい
@@ -165,24 +167,20 @@ async fn handle_trades_msg(msg: Message, symbol: &Symbol, kline_config: &Vec<KLi
                     continue;
                 }
                 if item.size == 0. {
-                    orderbook.remove(side, FloatExp::from_f64(item.price, symbol.price_precision()));
+                    orderbook.remove(side, item.price);
                 } else {
-                    orderbook.insert(side, FloatExp::from_f64(item.price, symbol.price_precision()), FloatExp::from_f64(item.size, symbol.amount_precision()));
+                    orderbook.insert(side, item.price, item.size);
                 }
             }
         }
-        let removed = orderbook.arrange(FloatExp::from_f64(board_diff.mid_price, symbol.price_precision()));
+        let removed = orderbook.arrange(board_diff.mid_price);
         if removed != 0 {
             info!("Arranged orderbook. Removed size: {}", removed);
         }
-    // } else if parsed.params.channel == format!("lightning_ticker_{}", symbol.to_native()) {
-    //     // サーバー時刻取得用
-    //     // ticker,execution,boardが順序通りに受信されることは確認している
-    //     let ticker = serde_json::from_value::<TickerResult>(parsed.params.message)?;
-    //     *state = Some(ServerTimeState {
-    //         server_time: ticker.timestamp,
-    //         client_time: Instant::now()
-    //     });
+
+        if is_debug() {
+            ORDERBOOK_DRAWER.write().print_orderbook(orderbook.get_best(), *symbol)?;
+        }
     } else {
         anyhow::bail!("Unknown channel: {}", parsed.params.channel);
     }

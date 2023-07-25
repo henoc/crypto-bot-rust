@@ -9,15 +9,23 @@ use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{config::CrawlerConfig, utils::{orderbook_repository::{OrderbookBest, OrderbookRepository, orderbook_best_time_fn}, strategy_utils::CaptureResult, useful_traits::{TupledResultTranspose, StaticVarExt, StaticVarHashVecExt}, time::{sleep_until_next, ScheduleExpr}, record_writer::SerialRecordWriter}, client::gmo::{WsResponse, OrderbooksResult, WsOkResponse}, symbol::Symbol, data_structure::float_exp::FloatExp, error_types::BotError};
+use crate::{config::CrawlerConfig, utils::{orderbook_repository::{OrderbookBest, OrderbookRepository, orderbook_best_time_fn}, strategy_utils::CaptureResult, useful_traits::{TupledResultTranspose, StaticVarExt, StaticVarHashVecExt}, time::{sleep_until_next, ScheduleExpr}, record_writer::SerialRecordWriter, draw_orderbook::OrderbookDrawer, draw::init_terminal}, client::gmo::{WsResponse, OrderbooksResult, WsOkResponse}, symbol::Symbol, data_structure::float_exp::FloatExp, error_types::BotError, global_vars::is_debug};
 
 // HashMap自体はVecへの書き込み時もreadしか要求しないので並列でアクセスできるはず
 // https://stackoverflow.com/questions/50282619/is-it-possible-to-share-a-hashmap-between-threads-without-locking-the-entire-has
 static ORDERBOOK_BEST: OnceCell<RwLock<HashMap<Symbol, RwLock<Vec<OrderbookBest>>>>> = OnceCell::new();
 
+// for debug
+static ORDERBOOK_DRAWER: OnceCell<RwLock<OrderbookDrawer>> = OnceCell::new();
+
 pub async fn start_crawler_gmo(config: &'static CrawlerConfig) {
     let symbol = config.symbols[0];
     ORDERBOOK_BEST.set(RwLock::new(config.symbols.iter().map(|s| (*s, RwLock::new(vec![]))).collect())).unwrap();
+
+    if is_debug() {
+        ORDERBOOK_DRAWER.set(RwLock::new(OrderbookDrawer::new(0, 0, config.symbols.clone()))).unwrap();
+        init_terminal().unwrap();
+    }
 
     select! {
         _ = spawn(async move {
@@ -73,16 +81,21 @@ async fn handle_ws_msg(msg: Message, _config: &CrawlerConfig) -> anyhow::Result<
     match res {
         WsOkResponse::Orderbooks(orderbooks) => {
             let symbol = orderbooks.symbol;
+            let repo = OrderbookRepository::new_with_state(Duration::seconds(1), vec![
+                orderbooks.bids.into_iter().map(|x| (x.price.into(), x.size.into())).collect(),
+                orderbooks.asks.into_iter().map(|x| (x.price.into(), x.size.into())).collect(),
+            ]);
             ORDERBOOK_BEST.push(
                 symbol,
                 OrderbookBest::new(
                     orderbooks.timestamp,
-                    OrderbookRepository::new_with_state(Duration::seconds(1), vec![
-                        orderbooks.bids.into_iter().map(|x| (FloatExp::from_str(x.price, symbol.price_precision()), FloatExp::from_str(x.size, symbol.amount_precision())).transpose()).collect::<Result<_, _>>()?,
-                        orderbooks.asks.into_iter().map(|x| (FloatExp::from_str(x.price, symbol.price_precision()), FloatExp::from_str(x.size, symbol.amount_precision())).transpose()).collect::<Result<_, _>>()?,
-                    ]).get_best()
+                    repo.get_best()
                 )
-            )
+            );
+
+            if is_debug() {
+                ORDERBOOK_DRAWER.write().print_orderbook(repo.get_best(), symbol)?;
+            }
         }
     }
     Ok(())

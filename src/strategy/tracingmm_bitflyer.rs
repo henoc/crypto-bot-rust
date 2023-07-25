@@ -32,7 +32,7 @@ const ORDER_MIN_AMOUNT: FloatExp = FloatExp::new(1, -2);
 const SPOT_SYMBOL: Symbol = Symbol::new(Currency::BTC, Currency::JPY, SymbolType::Spot, Exchange::Bitflyer);
 const SFD_LIMIT_RATE: FloatExp = FloatExp::new(4, -2);
 
-pub async fn start_tracingmm_bitflyer(config: &'static TracingMMConfig, check: bool) {
+pub async fn start_tracingmm_bitflyer(config: &'static TracingMMConfig) {
 
     STATUS.set(RwLock::new(StatusRepository::new_init("tracingmm", &config.symbol, Some(Duration::days(3))).unwrap())).unwrap();
     KLINE.set(RwLock::new(KLineMMap::new(config.symbol, config.timeframe.0, 300).unwrap())).unwrap();

@@ -114,6 +114,7 @@ impl Symbol {
                 _ => panic!("not implemented"),
             },
             Exchange::Bitflyer => -8,
+            Exchange::Coincheck => -8,
             _ => panic!("not implemented"),
         }
     }
@@ -127,6 +128,7 @@ impl Symbol {
                 _ => panic!("not implemented"),
             },
             Exchange::Bitflyer => 0,
+            Exchange::Coincheck => 0,
             _ => panic!("not implemented"),
         }
     }

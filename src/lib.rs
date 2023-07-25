@@ -7,3 +7,4 @@ pub mod strategy;
 pub mod config;
 pub mod logger;
 pub mod utils;
+pub mod global_vars;

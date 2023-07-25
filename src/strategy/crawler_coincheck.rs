@@ -1,45 +1,70 @@
 use anyhow::{Context};
-use chrono::{Duration, DateTime, Utc};
+use chrono::{Duration, DateTime, Utc, format};
+use std::time::Duration as StdDuration;
 use futures::{StreamExt, SinkExt};
 use log::info;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use serde_json::{Value, json};
-use tap::Pipe;
 use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::{time::{sleep_until_next, ScheduleExpr, parse_format_time_utc, now_floor_time}, status_repository::StatusRepository, record_writer::{SerialRecordWriter}, strategy_utils::{start_send_ping, CaptureResult}}, client::{coincheck::{CoincheckClient, KLineRequest, KLineResponse, WsTradesResponse}, types::{MpackTradeRecord, trades_time_fn}}};
+use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::{time::{sleep_until_next, ScheduleExpr, parse_format_time_utc, now_floor_time}, status_repository::StatusRepository, record_writer::{SerialRecordWriter}, strategy_utils::{start_send_ping, CaptureResult}, useful_traits::{StaticVarExt, StaticVarVecExt}, orderbook_repository::{OrderbookRepository, OrderbookBest, orderbook_best_time_fn, apply_diff_once}, draw_orderbook::OrderbookDrawer, draw::init_terminal}, client::{coincheck::{CoincheckClient, KLineRequest, KLineResponse, WsResponse, OrderbookRequest}, types::{MpackTradeRecord, trades_time_fn}}, data_structure::time_queue::TimeQueue, order_types::Side, global_vars::{DEBUG, is_debug}};
 
 static STATUS: OnceCell<RwLock<StatusRepository>> = OnceCell::new();
 static TRADE_RECORD: OnceCell<RwLock<Vec<MpackTradeRecord>>> = OnceCell::new();
+static ORDERBOOK: OnceCell<RwLock<OrderbookRepository>> = OnceCell::new();
+static ORDERBOOK_BEST: OnceCell<RwLock<Vec<OrderbookBest>>> = OnceCell::new();
+static ORDERBOOK_DIFF: OnceCell<RwLock<[TimeQueue<(f64, f64)>; 2]>> = OnceCell::new();
+
+// for debug
+static ORDERBOOK_DRAWER: OnceCell<RwLock<OrderbookDrawer>> = OnceCell::new();
+
+const ORDERBOOK_DIFF_DURATION: StdDuration = StdDuration::from_secs(5);
 
 pub async fn start_crawler_coincheck() {
 
-    let client = CoincheckClient::new();
     let symbol = Symbol::new(Currency::BTC, Currency::JPY, SymbolType::Spot, Exchange::Coincheck);
     STATUS.set(RwLock::new(StatusRepository::new_init("crawler", &symbol, None).unwrap())).unwrap();
-
+    
     TRADE_RECORD.set(RwLock::new(Vec::new())).unwrap();
+    ORDERBOOK.set(RwLock::new(OrderbookRepository::new(Duration::seconds(1)))).unwrap();
+    ORDERBOOK_BEST.set(RwLock::new(Vec::new())).unwrap();
+    ORDERBOOK_DIFF.set(RwLock::new([TimeQueue::new(ORDERBOOK_DIFF_DURATION), TimeQueue::new(ORDERBOOK_DIFF_DURATION)])).unwrap();
+
+    if is_debug() {
+        ORDERBOOK_DRAWER.set(RwLock::new(OrderbookDrawer::new(0, 0, vec![symbol]))).unwrap();
+        init_terminal().unwrap();
+    }
 
     select! {
         // 1min klineの保存
         _ = spawn(async move {
+            let client = CoincheckClient::new();
             loop {
                 sleep_until_next(ScheduleExpr::new(Duration::hours(1), Duration::minutes(0))).await;
                 fetch_kline(symbol, &client).await.capture_result(symbol).await.unwrap();
             }
         }) => {}
-        // tradesのsubscribe
+        // wsのsubscribe
         _ = spawn(async move {
-            subscribe_trades(symbol).await.capture_result(symbol).await.unwrap();
+            subscribe_ws(symbol).await.capture_result(symbol).await.unwrap();
         }) => {}
-        // tradesのファイル出力
+        _ = spawn(async move {
+            let client = CoincheckClient::new();
+            replace_orderbook_state(&client).await.capture_result(symbol).await.unwrap();
+            loop {
+                sleep_until_next(ScheduleExpr::new(Duration::minutes(1), Duration::minutes(0))).await;
+                replace_orderbook_state(&client).await.capture_result(symbol).await.unwrap();
+            }
+        }) => {}
+        // trades,orderbookのファイル出力
         _ = spawn(async move {
             loop {
                 sleep_until_next(ScheduleExpr::new(Duration::seconds(5), Duration::seconds(0))).await;
                 flush_trade_records(symbol).capture_result(symbol).await.unwrap();
+                flush_orderbook_best(symbol).capture_result(symbol).await.unwrap();
             }
         }) => {}
     }
@@ -88,24 +113,44 @@ async fn fetch_kline(symbol: Symbol, client: &CoincheckClient) -> anyhow::Result
     Ok(())
 }
 
-async fn subscribe_trades(symbol: Symbol) -> anyhow::Result<()> {
+/// orderbookのsnapshotを取得して直近の差分をすべて適用する
+async fn replace_orderbook_state(client: &CoincheckClient) -> anyhow::Result<()> {
+    let res = client.get(OrderbookRequest {}).await?;
+    let mut snapshot = vec![];
+    for &side in &[Side::Buy, Side::Sell] {
+        snapshot.push(apply_diff_once(
+            res.by_side(side).iter().map(|item| (item.price.into(), item.size.into())).collect(),
+            ORDERBOOK_DIFF.read()[side as usize].get_data_iter().map(|&(price, size)| (price.into(), size.into())),
+        ))
+    }
+    ORDERBOOK.write().replace_state(snapshot);
+    Ok(())
+}
+
+async fn subscribe_ws(symbol: Symbol) -> anyhow::Result<()> {
     let (socket, _) =
         connect_async(Url::parse("wss://ws-api.coincheck.com/").unwrap()).await?;
     info!("Connected to websocket");
 
     let (mut write, mut read) = socket.split();
-    
-    let op = serde_json::json!({
-        "type": "subscribe",
-        "channel": format!("{}-trades", symbol.to_native()),
-    });
 
-    write.send(Message::Text(op.to_string())).await?;
+    let channels = vec![
+        format!("{}-trades", symbol.to_native()),
+        format!("{}-orderbook", symbol.to_native()),
+    ];
+    
+    for channel in channels {
+        let op = serde_json::json!({
+            "type": "subscribe",
+            "channel": channel,
+        });
+        write.send(Message::Text(op.to_string())).await?;
+    }
 
     start_send_ping(symbol, write).await;
 
     while let Some(msg) = read.next().await {
-        match handle_trade_msg(msg?) {
+        match handle_ws_msg(msg?, symbol) {
             Ok(_) => (),
             Err(_) => continue,
         }
@@ -113,14 +158,38 @@ async fn subscribe_trades(symbol: Symbol) -> anyhow::Result<()> {
     anyhow::bail!("WebSocket disconnected");
 }
 
-fn handle_trade_msg(msg: Message) -> anyhow::Result<()> {
+fn handle_ws_msg(msg: Message, symbol: Symbol) -> anyhow::Result<()> {
     let msg = msg.to_text()?;
-    let parsed = serde_json::from_str::<WsTradesResponse>(msg)?;
-    let trades = parsed.to_trade_records()?;
+    let parsed = serde_json::from_str::<WsResponse>(msg)?;
+    match parsed {
+        WsResponse::Trade(trade) => {
+            let trades = trade.to_trade_records()?;
+            TRADE_RECORD.write().extend(trades.iter().cloned().map(|x| x.mpack()));
+        },
+        WsResponse::Orderbook(res) => {
+            let mut orderbook = ORDERBOOK.write();
+            let mut orderbook_diff = ORDERBOOK_DIFF.write();
+            if let Some(best) = orderbook.snapshot_on_update(res.last_update_at) {
+                ORDERBOOK_BEST.write().push(best);
+            }
+            for &side in &[Side::Buy, Side::Sell] {
+                for item in res.by_side(side) {
+                    if item.size == 0. {
+                        orderbook.remove(side, item.price);
+                    } else {
+                        orderbook.insert(side, item.price, item.size);
+                    }
+                }
+                orderbook_diff[side as usize].extend(res.by_side(side).iter().map(|item| (item.price, item.size)));
+                orderbook_diff[side as usize].retain();
+            }
 
-    // msgpackで出力する用
-    TRADE_RECORD.get().context("TRADE_RECORD is not initialized")?
-        .write().extend(trades.iter().cloned().map(|x| x.mpack()));
+            // orderbookの描画
+            if is_debug() {
+                ORDERBOOK_DRAWER.write().print_orderbook(orderbook.get_best(), symbol)?;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -135,6 +204,16 @@ fn flush_trade_records(symbol: Symbol) -> anyhow::Result<()> {
         "msgpack",
         Box::new(trades_time_fn)
     ).write_msgpack(&records)
+}
+
+fn flush_orderbook_best(symbol: Symbol) -> anyhow::Result<()> {
+    SerialRecordWriter::<OrderbookBest>::new(
+        "orderbook",
+        &symbol,
+        "msgpack",
+        Box::new(orderbook_best_time_fn)
+    ).write_msgpack(&ORDERBOOK_BEST.drain())?;
+    Ok(())
 }
 
 #[test]

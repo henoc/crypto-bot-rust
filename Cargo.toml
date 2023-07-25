@@ -41,6 +41,8 @@ memmap = "0.7.0"
 uuid =  { version = "1.4.0", features = ["v4", "fast-rng" ] }
 duct = "0.13.6"
 strum = { version = "0.25", features = ["derive"] }
+ordered-float = "3.7.0"
+crossterm = "0.26.1"
 
 [profile.dev]
 panic = "abort"

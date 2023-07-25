@@ -266,6 +266,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
+ "crossterm",
  "duct",
  "easy-ext",
  "futures",
@@ -276,6 +277,7 @@ dependencies = [
  "maplit",
  "memmap",
  "once_cell",
+ "ordered-float",
  "parking_lot 0.12.1",
  "polars",
  "reqwest",
@@ -1630,6 +1632,15 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "ordered-float"
+version = "3.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fc2dbde8f8a79f2102cc474ceb0ad68e3b80b85289ea62389b60e66777e4213"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]

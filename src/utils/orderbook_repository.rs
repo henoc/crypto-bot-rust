@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc, Duration};
+use ordered_float::OrderedFloat;
 use serde::Serialize;
 
-use crate::{data_structure::float_exp::FloatExp, order_types::Side};
+use crate::order_types::Side;
 
 use super::time::{floor_time, floor_time_sec};
 
@@ -36,7 +37,7 @@ impl Serialize for OrderbookBest {
 #[derive(Debug)]
 pub struct OrderbookRepository {
     /// [buy, sell] BTreeMapはkeyの昇順
-    pub state: Vec<BTreeMap<FloatExp, FloatExp>>,
+    pub state: Vec<BTreeMap<OrderedFloat<f64>, OrderedFloat<f64>>>,
     prev_time: DateTime<Utc>,
     /// snapshotを取る間隔。second以上
     timeframe: Duration,
@@ -53,7 +54,7 @@ impl OrderbookRepository {
     }
 
     #[inline]
-    pub fn new_with_state(timeframe: Duration, state: Vec<BTreeMap<FloatExp, FloatExp>>) -> Self {
+    pub fn new_with_state(timeframe: Duration, state: Vec<BTreeMap<OrderedFloat<f64>, OrderedFloat<f64>>>) -> Self {
         Self {
             state,
             prev_time: Utc::now(),
@@ -62,7 +63,7 @@ impl OrderbookRepository {
     }
 
     #[inline]
-    pub fn replace_state(&mut self, snapshot: Vec<BTreeMap<FloatExp, FloatExp>>) {
+    pub fn replace_state(&mut self, snapshot: Vec<BTreeMap<OrderedFloat<f64>, OrderedFloat<f64>>>) {
         self.state = snapshot;
     }
 
@@ -81,23 +82,23 @@ impl OrderbookRepository {
     }
 
     /// 差分更新
-    pub fn insert(&mut self, side: Side, price: FloatExp, amount: FloatExp) {
-        self.state[side as usize].insert(price, amount);
+    pub fn insert(&mut self, side: Side, price: f64, amount: f64) {
+        self.state[side as usize].insert(price.into(), amount.into());
     }
 
     /// 差分更新
-    pub fn remove(&mut self, side: Side, price: FloatExp) {
-        self.state[side as usize].remove(&price);
+    pub fn remove(&mut self, side: Side, price: f64) {
+        self.state[side as usize].remove(&price.into());
     }
 
     /// mid_priceに合わないものを捨てる
     /// pybottersのbitflyerの処理に準拠
     /// 
     /// return: 削除した数
-    pub fn arrange(&mut self, mid_price: FloatExp) -> usize {
+    pub fn arrange(&mut self, mid_price: f64) -> usize {
         let len1 = self.state[0].len() + self.state[1].len();
-        self.state[0].retain(|price, _| *price <= mid_price);   // buy
-        self.state[1].retain(|price, _| *price > mid_price);    // sell
+        self.state[0].retain(|price, _| price.0 <= mid_price);   // buy
+        self.state[1].retain(|price, _| price.0 > mid_price);    // sell
         let len2 = self.state[0].len() + self.state[1].len();
         len1 - len2
     }
@@ -107,12 +108,24 @@ impl OrderbookRepository {
         let mut buy = [(0.0,0.0);N];
         // buyはpriceの降順
         for (i, (price, amount)) in self.state[0].iter().rev().enumerate().take(N) {
-            buy[i] = (price.to_f64(), amount.to_f64());
+            buy[i] = (price.0, amount.0);
         }
         let mut sell = [(0.0,0.0);N];
         for (i, (price, amount)) in self.state[1].iter().enumerate().take(N) {
-            sell[i] = (price.to_f64(), amount.to_f64());
+            sell[i] = (price.0, amount.0);
         }
         [buy,sell]
     }
+}
+
+/// 差分を一度に更新する
+pub fn apply_diff_once<I: IntoIterator<Item = (OrderedFloat<f64>, OrderedFloat<f64>)>>(mut snapshot: BTreeMap<OrderedFloat<f64>, OrderedFloat<f64>>, diff: I) -> BTreeMap<OrderedFloat<f64>, OrderedFloat<f64>> {
+    for (price, amount) in diff {
+        if amount == 0. {
+            snapshot.remove(&price);
+        } else {
+            snapshot.insert(price, amount);
+        }
+    }
+    snapshot
 }
