@@ -10,7 +10,7 @@ use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{config::{KLineBuilderConfig, CrawlerConfig}, utils::{strategy_utils::{start_send_ping, show_kline_mmap, start_flush_kline_mmap, CaptureResult, connect_into_sink}, kline_mmap::KLineMMap, time::{sleep_until_next, ScheduleExpr, UnixTimeUnit, datetime_utc_from_timestamp}, useful_traits::{StaticVarExt, StaticVarVecExt}, orderbook_repository::{OrderbookRepository, OrderbookBest, orderbook_best_time_fn}, record_writer::SerialRecordWriter, status_repository::StatusRepository, draw_orderbook::OrderbookDrawer, draw::init_terminal}, symbol::Symbol, client::{types::{MpackTradeRecord, trades_time_fn}, bitflyer::{WsResponse, ExecutionItem, BoardResult}}, data_structure::float_exp::FloatExp, order_types::Side, global_vars::{DEBUG, is_debug}};
+use crate::{config::{KLineBuilderConfig, CrawlerConfig}, utils::{strategy_utils::{start_send_ping, show_kline_mmap, start_flush_kline_mmap, CaptureResult, connect_into_sink}, kline_mmap::KLineMMap, time::{sleep_until_next, ScheduleExpr, UnixTimeUnit, datetime_utc_from_timestamp}, useful_traits::{StaticVarExt, StaticVarVecExt}, orderbook_repository::{OrderbookRepository, OrderbookBest, orderbook_best_time_fn}, record_writer::SerialRecordWriter, status_repository::StatusRepository, draw_orderbook::OrderbookDrawer, draw::init_terminal}, symbol::Symbol, client::{types::{MpackTradeRecord, trades_time_fn}, bitflyer::{WsResponse, ExecutionItem, BoardResult}}, data_structure::float_exp::FloatExp, order_types::Side, global_vars::{DEBUG, get_debug, DebugFlag}};
 
 static KLINE_MMAP: OnceCell<RwLock<HashMap<Duration, KLineMMap>>> = OnceCell::new();
 static ORDERBOOK: OnceCell<RwLock<OrderbookRepository>> = OnceCell::new();
@@ -41,7 +41,7 @@ pub async fn start_crawler_bitflyer(config: &CrawlerConfig) {
     })).unwrap();
     TRADE_RECORD.set(RwLock::new(Vec::new())).unwrap();
 
-    if is_debug() {
+    if get_debug()==DebugFlag::Orderbook {
         ORDERBOOK_DRAWER.set(RwLock::new(OrderbookDrawer::new(0, 0, config.symbols.clone()))).unwrap();
         init_terminal().unwrap();
     }
@@ -178,7 +178,7 @@ async fn handle_trades_msg(msg: Message, symbol: &Symbol, kline_config: &Vec<KLi
             info!("Arranged orderbook. Removed size: {}", removed);
         }
 
-        if is_debug() {
+        if get_debug()==DebugFlag::Orderbook {
             ORDERBOOK_DRAWER.write().print_orderbook(orderbook.get_best(), *symbol)?;
         }
     } else {

@@ -13,13 +13,14 @@ use tokio::spawn;
 
 use crate::client::credentials::CREDENTIALS;
 use crate::client::gmo::AccountAssets;
+use crate::client::gmo::AccountAssetsRequest;
 use crate::client::gmo::CreateOrderRequest;
 use crate::client::gmo::GmoClient;
 use crate::client::gmo::GmoClientResponse;
 use crate::client::gmo::GmoTimeInForce;
 use crate::client::gmo::Tickers;
 use crate::client::mail::send_mail;
-use crate::client::method::EmptyQuery;
+use crate::client::method::EmptyQueryRequest;
 use crate::config::ShannonConfig;
 use crate::config::VirtualAmount;
 use crate::data_structure::float_exp::FloatExp;
@@ -88,7 +89,7 @@ impl Balance {
 
 async fn update_assets(client: &GmoClient, symbol: &Symbol) -> Result<()> {
     info!("update_assets");
-    let assets: GmoClientResponse<AccountAssets> = client.get_private("/v1/account/assets", EmptyQuery).await?;
+    let assets: GmoClientResponse<AccountAssets> = client.get_private("/v1/account/assets", AccountAssetsRequest {}).await?;
     for asset in assets.into_result()? {
         if asset.symbol == symbol.base.to_string() {
             BALANCE.get().context("BALANCE failed")?.write().base = asset.amount.parse::<f64>()?.pipe(|x| FloatExp::from_f64(x, symbol.amount_precision()));

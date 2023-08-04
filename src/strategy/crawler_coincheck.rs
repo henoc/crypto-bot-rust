@@ -1,6 +1,6 @@
 use anyhow::{Context};
 use chrono::{Duration, DateTime, Utc, format};
-use std::time::Duration as StdDuration;
+use std::{time::Duration as StdDuration, collections::HashMap};
 use futures::{StreamExt, SinkExt};
 use log::info;
 use once_cell::sync::OnceCell;
@@ -10,9 +10,10 @@ use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::{time::{sleep_until_next, ScheduleExpr, parse_format_time_utc, now_floor_time}, status_repository::StatusRepository, record_writer::{SerialRecordWriter}, strategy_utils::{start_send_ping, CaptureResult}, useful_traits::{StaticVarExt, StaticVarVecExt}, orderbook_repository::{OrderbookRepository, OrderbookBest, orderbook_best_time_fn, apply_diff_once}, draw_orderbook::OrderbookDrawer, draw::init_terminal}, client::{coincheck::{CoincheckClient, KLineRequest, KLineResponse, WsResponse, OrderbookRequest}, types::{MpackTradeRecord, trades_time_fn}}, data_structure::time_queue::TimeQueue, order_types::Side, global_vars::{DEBUG, is_debug}};
+use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::{time::{sleep_until_next, ScheduleExpr, parse_format_time_utc, now_floor_time}, status_repository::StatusRepository, record_writer::{SerialRecordWriter}, strategy_utils::{start_send_ping, CaptureResult, start_flush_kline_mmap, show_kline_mmap}, useful_traits::{StaticVarExt, StaticVarVecExt}, orderbook_repository::{OrderbookRepository, OrderbookBest, orderbook_best_time_fn, apply_diff_once}, draw_orderbook::OrderbookDrawer, draw::init_terminal, kline_mmap::KLineMMap}, client::{coincheck::{CoincheckClient, KLineRequest, KLineResponse, WsResponse, OrderbookRequest}, types::{MpackTradeRecord, trades_time_fn}}, data_structure::time_queue::TimeQueue, order_types::Side, global_vars::{DEBUG, get_debug, DebugFlag}, config::{CrawlerConfig, KLineBuilderConfig}};
 
 static STATUS: OnceCell<RwLock<StatusRepository>> = OnceCell::new();
+static KLINE_MMAP: OnceCell<RwLock<HashMap<Duration, KLineMMap>>> = OnceCell::new();
 static TRADE_RECORD: OnceCell<RwLock<Vec<MpackTradeRecord>>> = OnceCell::new();
 static ORDERBOOK: OnceCell<RwLock<OrderbookRepository>> = OnceCell::new();
 static ORDERBOOK_BEST: OnceCell<RwLock<Vec<OrderbookBest>>> = OnceCell::new();
@@ -23,9 +24,17 @@ static ORDERBOOK_DRAWER: OnceCell<RwLock<OrderbookDrawer>> = OnceCell::new();
 
 const ORDERBOOK_DIFF_DURATION: StdDuration = StdDuration::from_secs(5);
 
-pub async fn start_crawler_coincheck() {
+pub async fn start_crawler_coincheck(config: &CrawlerConfig) {
+    if config.symbols.len() != 1 {
+        panic!("Only one symbol is supported");
+    }
+    let symbol = config.symbols[0];
+    let kline_config = config.kline_builder.clone();
 
-    let symbol = Symbol::new(Currency::BTC, Currency::JPY, SymbolType::Spot, Exchange::Coincheck);
+    KLINE_MMAP.set(RwLock::new(
+        kline_config.iter().map(|c| (c.timeframe.0, KLineMMap::new(symbol, c.timeframe.0, c.len).unwrap())).collect()
+    )).unwrap();
+
     STATUS.set(RwLock::new(StatusRepository::new_init("crawler", &symbol, None).unwrap())).unwrap();
     
     TRADE_RECORD.set(RwLock::new(Vec::new())).unwrap();
@@ -33,15 +42,21 @@ pub async fn start_crawler_coincheck() {
     ORDERBOOK_BEST.set(RwLock::new(Vec::new())).unwrap();
     ORDERBOOK_DIFF.set(RwLock::new([TimeQueue::new(ORDERBOOK_DIFF_DURATION), TimeQueue::new(ORDERBOOK_DIFF_DURATION)])).unwrap();
 
-    if is_debug() {
+    if get_debug()==DebugFlag::Orderbook {
         ORDERBOOK_DRAWER.set(RwLock::new(OrderbookDrawer::new(0, 0, vec![symbol]))).unwrap();
         init_terminal().unwrap();
     }
+    if get_debug()==DebugFlag::Kline {
+        show_kline_mmap(&KLINE_MMAP, &kline_config).unwrap();
+        return;
+    }
+
+    start_flush_kline_mmap(&KLINE_MMAP, symbol, &kline_config);
 
     select! {
         // 1min klineの保存
         _ = spawn(async move {
-            let client = CoincheckClient::new();
+            let client = CoincheckClient::new(None);
             loop {
                 sleep_until_next(ScheduleExpr::new(Duration::hours(1), Duration::minutes(0))).await;
                 fetch_kline(symbol, &client).await.capture_result(symbol).await.unwrap();
@@ -49,10 +64,10 @@ pub async fn start_crawler_coincheck() {
         }) => {}
         // wsのsubscribe
         _ = spawn(async move {
-            subscribe_ws(symbol).await.capture_result(symbol).await.unwrap();
+            subscribe_ws(symbol, &kline_config).await.capture_result(symbol).await.unwrap();
         }) => {}
         _ = spawn(async move {
-            let client = CoincheckClient::new();
+            let client = CoincheckClient::new(None);
             replace_orderbook_state(&client).await.capture_result(symbol).await.unwrap();
             loop {
                 sleep_until_next(ScheduleExpr::new(Duration::minutes(1), Duration::minutes(0))).await;
@@ -82,7 +97,7 @@ fn kline_time_fn(value: &Value) -> Option<DateTime<Utc>> {
 async fn fetch_kline(symbol: Symbol, client: &CoincheckClient) -> anyhow::Result<()> {
     let timeframe = Duration::minutes(1);
     let limit = 300;
-    let result: KLineResponse = client.get(KLineRequest {
+    let result: KLineResponse = client.get_public(KLineRequest {
         symbol: symbol.clone(),
         timeframe: timeframe.clone(),
         limit,
@@ -115,7 +130,7 @@ async fn fetch_kline(symbol: Symbol, client: &CoincheckClient) -> anyhow::Result
 
 /// orderbookのsnapshotを取得して直近の差分をすべて適用する
 async fn replace_orderbook_state(client: &CoincheckClient) -> anyhow::Result<()> {
-    let res = client.get(OrderbookRequest {}).await?;
+    let res = client.get_public(OrderbookRequest {}).await?;
     let mut snapshot = vec![];
     for &side in &[Side::Buy, Side::Sell] {
         snapshot.push(apply_diff_once(
@@ -127,7 +142,7 @@ async fn replace_orderbook_state(client: &CoincheckClient) -> anyhow::Result<()>
     Ok(())
 }
 
-async fn subscribe_ws(symbol: Symbol) -> anyhow::Result<()> {
+async fn subscribe_ws(symbol: Symbol, kline_config: &Vec<KLineBuilderConfig>) -> anyhow::Result<()> {
     let (socket, _) =
         connect_async(Url::parse("wss://ws-api.coincheck.com/").unwrap()).await?;
     info!("Connected to websocket");
@@ -150,7 +165,7 @@ async fn subscribe_ws(symbol: Symbol) -> anyhow::Result<()> {
     start_send_ping(symbol, write).await;
 
     while let Some(msg) = read.next().await {
-        match handle_ws_msg(msg?, symbol) {
+        match handle_ws_msg(msg?, symbol, kline_config) {
             Ok(_) => (),
             Err(_) => continue,
         }
@@ -158,12 +173,16 @@ async fn subscribe_ws(symbol: Symbol) -> anyhow::Result<()> {
     anyhow::bail!("WebSocket disconnected");
 }
 
-fn handle_ws_msg(msg: Message, symbol: Symbol) -> anyhow::Result<()> {
+fn handle_ws_msg(msg: Message, symbol: Symbol, kline_config: &Vec<KLineBuilderConfig>) -> anyhow::Result<()> {
     let msg = msg.to_text()?;
     let parsed = serde_json::from_str::<WsResponse>(msg)?;
     match parsed {
         WsResponse::Trade(trade) => {
             let trades = trade.to_trade_records()?;
+            for conf in kline_config {
+                KLINE_MMAP.write()
+                .get_mut(&conf.timeframe.0).unwrap().update_ohlcvs(&trades)?;
+            }
             TRADE_RECORD.write().extend(trades.iter().cloned().map(|x| x.mpack()));
         },
         WsResponse::Orderbook(res) => {
@@ -185,7 +204,7 @@ fn handle_ws_msg(msg: Message, symbol: Symbol) -> anyhow::Result<()> {
             }
 
             // orderbookの描画
-            if is_debug() {
+            if get_debug()==DebugFlag::Orderbook {
                 ORDERBOOK_DRAWER.write().print_orderbook(orderbook.get_best(), symbol)?;
             }
         }

@@ -1,6 +1,7 @@
-use std::{collections::HashMap, hash::{Hash, BuildHasher}};
+use std::{collections::HashMap, hash::{Hash, BuildHasher}, str::FromStr};
 
 use easy_ext::ext;
+use hyper::{HeaderMap, http::HeaderName};
 use once_cell::sync::OnceCell;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -54,6 +55,30 @@ pub impl<T, E> (Result<T, E>, Result<T, E>) {
             (Err(a), Err(_)) => Err(a),
             (Err(a), Ok(_)) => Err(a),
             (Ok(_), Err(b)) => Err(b),
+        }
+    }
+}
+
+#[ext(HashMapToHeaderMap)]
+pub impl<K: AsRef<str>, V: AsRef<str>> HashMap<K, V> {
+    #[inline]
+    fn to_header_map(&self) -> anyhow::Result<HeaderMap> {
+        let mut header = HeaderMap::new();
+        for (key, value) in self {
+            header.insert(HeaderName::from_str(key.as_ref())?, value.as_ref().parse()?);
+        }
+        Ok(header)
+    }
+}
+
+#[ext(ResultFlatten)]
+pub impl<T, E> Result<Result<T, E>, E> {
+    #[inline]
+    fn flatten_(self) -> Result<T, E> {
+        match self {
+            Ok(Ok(x)) => Ok(x),
+            Ok(Err(e)) => Err(e),
+            Err(e) => Err(e),
         }
     }
 }

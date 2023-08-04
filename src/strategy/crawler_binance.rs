@@ -10,7 +10,7 @@ use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{utils::{kline_mmap::KLineMMap, strategy_utils::{show_kline_mmap, start_flush_kline_mmap, CaptureResult}}, config::{CrawlerConfig, KLineBuilderConfig}, symbol::{Symbol, SymbolType}, client::binance::WsAggTrade, global_vars::is_debug};
+use crate::{utils::{kline_mmap::KLineMMap, strategy_utils::{show_kline_mmap, start_flush_kline_mmap, CaptureResult}}, config::{CrawlerConfig, KLineBuilderConfig}, symbol::{Symbol, SymbolType}, client::binance::WsAggTrade, global_vars::{get_debug, DebugFlag}};
 
 
 
@@ -27,7 +27,7 @@ pub async fn start_crawler_binance(config: &CrawlerConfig) {
         kline_config.iter().map(|c| (c.timeframe.0, KLineMMap::new(symbol, c.timeframe.0, c.len).unwrap())).collect()
     )).unwrap();
 
-    if is_debug() {
+    if get_debug()==DebugFlag::Kline {
         show_kline_mmap(&KLINE_MMAP, &kline_config).unwrap();
         return;
     }

@@ -5,12 +5,11 @@ use log::info;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use serde_json::{Value, json};
-use tap::Pipe;
 use tokio::{select, spawn, try_join, join};
 use tokio_tungstenite::{tungstenite::Message, connect_async};
 use url::Url;
 
-use crate::{utils::{status_repository::StatusRepository, strategy_utils::{is_logical_postonly, get_liquidity_limited_base, start_send_ping, CaptureResult}, time::{ScheduleExpr, sleep_until_next, UnixTimeUnit, now_floor_time}, kline_mmap::KLineMMap, tracingmm_utils::{TracingMMPosition, tracing_price, TracingPriceResult}, reserved_orders::{ReservedOrdersManager, ReservedOrder}, useful_traits::StaticVarExt}, config::TracingMMConfig, symbol::{Symbol, Currency, SymbolType, Exchange}, client::{bitflyer::{BitflyerClient, CancelAllOrdersRequest, GetPositionRequest, GetPositionResponse, ChildOrderRequest, ChildOrderType, GetCollateralRequest, TickerRequest, ExecutionItem, WsResponse, CancelChildOrderRequest}, credentials::CREDENTIALS, types::KLines}, data_structure::float_exp::FloatExp, order_types::Side};
+use crate::{utils::{status_repository::StatusRepository, strategy_utils::{is_logical_postonly, get_liquidity_limited_base, start_send_ping, CaptureResult, update_assets_inner}, time::{ScheduleExpr, sleep_until_next, UnixTimeUnit, now_floor_time}, kline_mmap::KLineMMap, tracingmm_utils::{TracingMMPosition, tracing_price, TracingPriceResult, read_kline, next_open_amount}, reserved_orders::{ReservedOrdersManager, ReservedOrder}, useful_traits::StaticVarExt}, config::TracingMMConfig, symbol::{Symbol, Currency, SymbolType, Exchange}, client::{bitflyer::{BitflyerClient, CancelAllOrdersRequest, GetPositionRequest, GetPositionResponse, ChildOrderRequest, ChildOrderType, GetCollateralRequest, TickerRequest, ExecutionItem, WsResponse, CancelChildOrderRequest}, credentials::CREDENTIALS, types::KLines}, data_structure::float_exp::FloatExp, order_types::{Side, OrderType}};
 
 
 static STATUS: OnceCell<RwLock<StatusRepository>> = OnceCell::new();
@@ -19,8 +18,6 @@ static REF_KLINE: OnceCell<RwLock<KLineMMap>> = OnceCell::new();
 static SPOT_KLINE: OnceCell<RwLock<KLineMMap>> = OnceCell::new(); // sfd
 static POS: OnceCell<RwLock<[TracingMMPosition; 2]>> = OnceCell::new();
 static RESERVED: OnceCell<RwLock<ReservedOrdersManager>> = OnceCell::new();
-
-const MAX_SIDE_POSITIONS: i64 = 3;
 
 const MAPPING_SIZE: i64 = 100;
 
@@ -101,24 +98,6 @@ async fn update_position(client: &BitflyerClient, symbol: Symbol) -> anyhow::Res
     Ok(())
 }
 
-async fn read_kline(kline: &'static OnceCell<RwLock<KLineMMap>>, timeframe: Duration) -> anyhow::Result<KLines> {
-    let prev_opentime = now_floor_time(timeframe, -1);
-    let mut header_opentime = None;
-    for _ in 0..10 {
-        header_opentime = Some(kline.read().mmap_read_header());
-        if prev_opentime <= header_opentime.unwrap() {
-            let klines: KLines = kline.read().mmap_read_all()?.into();
-            let klines = klines.reindex(prev_opentime + timeframe, timeframe)?;
-            if klines.df.height() < 200 {
-                anyhow::bail!("kline is too short. path: {}, len: {}", kline.read().get_mmap_path(), klines.df.height());
-            }
-            return Ok(klines);
-        }
-        tokio::time::sleep(Duration::milliseconds(10).to_std().unwrap()).await;
-    }
-    anyhow::bail!("failed to update kline. curr: {:?}, header: {:?}", prev_opentime, header_opentime);
-}
-
 async fn update_order(client: &BitflyerClient, config: &TracingMMConfig) -> anyhow::Result<()> {
     update_position(client, config.symbol).await?;
     let (klines, ref_klines, spot_klines) = try_join!(
@@ -161,7 +140,7 @@ async fn send_new_orders(client: &BitflyerClient, config: &TracingMMConfig, pric
             continue;
         }
         let price = FloatExp::from_f64(prices.by_side(side).r#in, config.symbol.price_precision());
-        let amount = next_open_amount(&config.symbol, side, price);
+        let amount = next_open_amount(&STATUS, &POS, config.max_side_positions, &config.symbol, side, price);
         if let Some(amount) = amount {
             open_orders.push(open_order(client, config, side, price, amount, last_close));
         }
@@ -171,21 +150,6 @@ async fn send_new_orders(client: &BitflyerClient, config: &TracingMMConfig, pric
     // https://stackoverflow.com/questions/63798662/how-do-i-convert-a-vecresultt-e-to-resultvect-e
     a.into_iter().chain(b.into_iter()).collect::<anyhow::Result<Vec<_>>>()?;
     Ok(())
-}
-
-/// 使用可能な注文量を計算する
-fn next_open_amount(symbol: &Symbol, side: Side, price: FloatExp) -> Option<FloatExp> {
-    let status = STATUS.read()[symbol].clone();
-    let quote_for_order = status["available_quote"].as_f64()?.min(status["liquidity_limited_base"].as_f64()? * MAX_SIDE_POSITIONS as f64 * price.to_f64());
-    let order_amount = quote_for_order / MAX_SIDE_POSITIONS as f64 / price.to_f64();
-
-    let init_notional = POS.read()[side as usize].init_notional.to_f64();
-    if init_notional + order_amount * price.to_f64() < quote_for_order {
-        Some(FloatExp::from_f64(order_amount, symbol.amount_precision()))
-    } else {
-        info!("next_open_amount not enough quote. side: {:?}, quote_for_order: {}, init_notional: {}, order_amount: {}", side, quote_for_order, init_notional, order_amount);
-        None
-    }
 }
 
 async fn open_order(client: &BitflyerClient, config: &TracingMMConfig, side: Side, price: FloatExp, amount: FloatExp, last_close: FloatExp) -> anyhow::Result<()> {
@@ -237,7 +201,7 @@ async fn close_order(client: &BitflyerClient, config: &TracingMMConfig, side: Si
         let pos_side = side.inv().to_pos();
         let losscut_price = pos[pos_side as usize].entry_price * (1.0 - losscut_rate * pos_side.sign() as f64);
         RESERVED.write().add_reserved_order(
-            side, side.inv().to_pos(), losscut_price, amount, true, Some(res.child_order_acceptance_id)
+            OrderType::Stop, side, side.inv().to_pos(), losscut_price, amount, Some(res.child_order_acceptance_id)
         );
     }
     Ok(())
@@ -248,24 +212,7 @@ async fn update_assets(client: &BitflyerClient, config: &TracingMMConfig) -> any
         client.get_private(GetCollateralRequest {}),
         client.get_public(TickerRequest { product_code: config.symbol.to_native() })
     )?;
-    let mut fixed_margin = STATUS.read()[&config.symbol]["fixed_margin"].as_f64().unwrap_or(0.0);
-    fixed_margin = fixed_margin.max(balance.collateral * 0.8);
-    let available_quote = fixed_margin * config.leverage;
-    let liquidity_limited_base = get_liquidity_limited_base(
-        ticker.volume_by_product,
-        config.timeframe.0 * config.exit_mean_frame, 
-        MAX_SIDE_POSITIONS, 
-        1.0, 
-        config.beta.r#in==config.beta.out && config.gamma.r#in==config.gamma.out
-    );
-
-    STATUS.write().update(config.symbol, json!({
-        "fixed_margin": fixed_margin,
-        "available_quote": available_quote,
-        "liquidity_limited_base": liquidity_limited_base,
-    }))?;
-
-    info!("update_assets. fixed_margin: {}, available_quote: {}, liquidity_limited_base: {}", fixed_margin, available_quote, liquidity_limited_base);
+    update_assets_inner(&STATUS, config, balance.collateral, ticker.volume_by_product)?;
     Ok(())
 }
 

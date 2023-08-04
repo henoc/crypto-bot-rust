@@ -9,7 +9,7 @@ use tokio::{select, spawn};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use url::Url;
 
-use crate::{config::CrawlerConfig, utils::{orderbook_repository::{OrderbookBest, OrderbookRepository, orderbook_best_time_fn}, strategy_utils::CaptureResult, useful_traits::{TupledResultTranspose, StaticVarExt, StaticVarHashVecExt}, time::{sleep_until_next, ScheduleExpr}, record_writer::SerialRecordWriter, draw_orderbook::OrderbookDrawer, draw::init_terminal}, client::gmo::{WsResponse, OrderbooksResult, WsOkResponse}, symbol::Symbol, data_structure::float_exp::FloatExp, error_types::BotError, global_vars::is_debug};
+use crate::{config::CrawlerConfig, utils::{orderbook_repository::{OrderbookBest, OrderbookRepository, orderbook_best_time_fn}, strategy_utils::CaptureResult, useful_traits::{TupledResultTranspose, StaticVarExt, StaticVarHashVecExt}, time::{sleep_until_next, ScheduleExpr}, record_writer::SerialRecordWriter, draw_orderbook::OrderbookDrawer, draw::init_terminal}, client::gmo::{WsResponse, OrderbooksResult, WsOkResponse}, symbol::Symbol, data_structure::float_exp::FloatExp, error_types::BotError, global_vars::{get_debug, DebugFlag}};
 
 // HashMap自体はVecへの書き込み時もreadしか要求しないので並列でアクセスできるはず
 // https://stackoverflow.com/questions/50282619/is-it-possible-to-share-a-hashmap-between-threads-without-locking-the-entire-has
@@ -22,7 +22,7 @@ pub async fn start_crawler_gmo(config: &'static CrawlerConfig) {
     let symbol = config.symbols[0];
     ORDERBOOK_BEST.set(RwLock::new(config.symbols.iter().map(|s| (*s, RwLock::new(vec![]))).collect())).unwrap();
 
-    if is_debug() {
+    if get_debug()==DebugFlag::Orderbook {
         ORDERBOOK_DRAWER.set(RwLock::new(OrderbookDrawer::new(0, 0, config.symbols.clone()))).unwrap();
         init_terminal().unwrap();
     }
@@ -93,7 +93,7 @@ async fn handle_ws_msg(msg: Message, _config: &CrawlerConfig) -> anyhow::Result<
                 )
             );
 
-            if is_debug() {
+            if get_debug()==DebugFlag::Orderbook {
                 ORDERBOOK_DRAWER.write().print_orderbook(repo.get_best(), symbol)?;
             }
         }

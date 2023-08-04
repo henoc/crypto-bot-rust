@@ -78,6 +78,9 @@ pub struct TracingMMConfig {
     pub timeframe: Timeframe,
     pub leverage: f64,
 
+    #[serde(default = "max_side_positions_default")]
+    pub max_side_positions: i64,
+
     pub ref_symbol: Symbol,
     pub atr_period: i64,
     pub beta: PriceInOut,
@@ -85,4 +88,8 @@ pub struct TracingMMConfig {
     pub losscut_rate: Option<f64>,
     /// timeframeで何フレームか
     pub exit_mean_frame: i32,
+}
+
+fn max_side_positions_default() -> i64 {
+    3
 }

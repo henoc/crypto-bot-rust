@@ -64,6 +64,19 @@ pub async fn post_no_parse<S: serde::Serialize>(
     Ok(status)
 }
 
+pub async fn delete<T: serde::de::DeserializeOwned>(client: &reqwest::Client, endpoint: &str, path: &str, header: HeaderMap) -> anyhow::Result<(StatusCode, T)> {
+    let url_str = format!("{}{}", endpoint, path);
+    let url = Url::parse(&url_str)?;
+    let res = client.delete(url)
+        .headers(header)
+        .send()
+        .await?;
+    let res = error_for_server(res)?;
+    let status = res.status();
+    let body = res.json().await?;
+    Ok((status, body))
+}
+
 pub fn make_header(auth: HashMap<String, String>) -> reqwest::header::HeaderMap {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
@@ -95,9 +108,9 @@ impl GetRequest for HashMap<String, String> {
     }
 }
 
-pub struct EmptyQuery;
+pub trait EmptyQueryRequest {}
 
-impl GetRequest for EmptyQuery {
+impl<T: EmptyQueryRequest> GetRequest for T {
     fn to_query(&self) -> HashMap<String, String> {
         HashMap::new()
     }
@@ -107,4 +120,3 @@ pub trait HasPath {
     const PATH: &'static str;
     type Response: serde::de::DeserializeOwned;
 }
-

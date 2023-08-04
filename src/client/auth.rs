@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 
+use maplit::hashmap;
 use hyper::Method;
 use ring::hmac;
 
-use super::{credentials::ApiCredentials};
+use super::credentials::ApiCredentials;
+
+// pybotters > auth.py を見ると参考になる
 
 /**
  * path: /v1/path
@@ -34,4 +37,22 @@ pub fn bitflyer_auth<T: serde::Serialize>(method: Method, path: &str, body: Opti
     headers.insert("ACCESS-TIMESTAMP".to_string(), timestamp);
     headers.insert("ACCESS-SIGN".to_string(), sign);
     Ok(headers)
+}
+
+const COINCHECK_BASE_URL: &str = "https://coincheck.com";
+
+pub fn coincheck_auth<T: serde::Serialize>(path: &str, body: Option<&T>, api_key_secret: &ApiCredentials, nonce_incr: i64) -> anyhow::Result<HashMap<String, String>> {
+    let nonce = chrono::Utc::now().timestamp_millis() + nonce_incr;
+    // get body form-data string from body
+    let body = match body {
+        Some(x) => serde_json::to_string(x)?,
+        None => "".to_string(),
+    };
+    let message = format!("{nonce}{COINCHECK_BASE_URL}{path}{body}");
+    let signature = hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, api_key_secret.api_secret.as_bytes()), message.as_bytes());
+    Ok(hashmap! {
+        "ACCESS-KEY".to_string() => api_key_secret.api_key.clone(),
+        "ACCESS-NONCE".to_string() => nonce.to_string(),
+        "ACCESS-SIGNATURE".to_string() => hex::encode(signature.as_ref()),
+    })
 }

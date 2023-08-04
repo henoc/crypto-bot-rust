@@ -6,6 +6,7 @@ use serde::Deserialize;
 pub struct Credentials {
     pub gmo: ApiCredentials,
     pub bitflyer: ApiCredentials,
+    pub coincheck: ApiCredentials,
     pub mail: MailCredentials,
 }
 

@@ -11,3 +11,4 @@ pub mod useful_traits;
 pub mod orderbook_repository;
 pub mod draw_orderbook;
 pub mod draw;
+pub mod serde;

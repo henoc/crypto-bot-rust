@@ -6,9 +6,9 @@ use hyper::{Method, HeaderMap};
 use serde::{Deserialize, Serialize, Deserializer};
 use serde_json::{Value};
 
-use crate::{symbol::{Symbol, Currency, SymbolType, Exchange}, order_types::{Side, OrderType}, error_types::BotError, utils::time::deserialize_rfc3339};
+use crate::{symbol::{Symbol, Currency, SymbolType, Exchange}, order_types::{Side, OrderType}, error_types::BotError, utils::{time::deserialize_rfc3339, serde::deserialize_f64_from_str}};
 
-use super::{method::{make_header, get, post, GetRequest}, credentials::ApiCredentials, auth::gmo_coin_auth};
+use super::{method::{make_header, get, post, GetRequest, EmptyQueryRequest, HasPath}, credentials::ApiCredentials, auth::gmo_coin_auth};
 
 #[derive(Debug, Clone)]
 pub struct GmoClient {
@@ -93,6 +93,16 @@ pub struct GmoClientResponseMessage {
     pub message_string: String,
 }
 
+pub struct AccountAssetsRequest;
+
+impl EmptyQueryRequest for AccountAssetsRequest {
+}
+
+impl HasPath for AccountAssetsRequest {
+    const PATH: &'static str = "/v1/account/assets";
+    type Response = AccountAssets;
+}
+
 pub type AccountAssets = Vec<AccountAsset>;
 
 #[derive(Debug, Deserialize)]
@@ -172,15 +182,6 @@ pub struct PriceSizePair {
     pub size: f64,
 }
 
-fn deserialize_f64_from_str<'de, D>(deserializer: D) -> Result<f64, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        let f = f64::from_str(&s).map_err(serde::de::Error::custom)?;
-        Ok(f)
-    }
-
 fn deserialize_gmo_symbol<'de, D>(deserializer: D) -> Result<Symbol, D::Error>
     where
         D: Deserializer<'de>,
@@ -203,19 +204,10 @@ fn deserialize_gmo_symbol<'de, D>(deserializer: D) -> Result<Symbol, D::Error>
     }
 
 #[tokio::test]
-async fn test_gmo_client() {
-    use super::method::EmptyQuery;
-    let gmo = GmoClient::new(None);
-    let res: Value = gmo.get_public("/v1/status", EmptyQuery).await.unwrap();
-    assert_eq!(res["data"]["status"], "OPEN");
-}
-
-#[tokio::test]
 async fn test_gmo_client_account_assets() {
     use super::credentials::CREDENTIALS;
-    use super::method::EmptyQuery;
     let gmo = GmoClient::new(Some(CREDENTIALS.gmo.clone()));
-    let res: GmoClientResponse<AccountAssets> = gmo.get_private("/v1/account/assets", EmptyQuery).await.unwrap();
+    let res: GmoClientResponse<AccountAssets> = gmo.get_private("/v1/account/assets", AccountAssetsRequest {}).await.unwrap();
     println!("{:?}", res);
     println!("{:?}", res.into_result());
 }

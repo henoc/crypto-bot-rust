@@ -4,18 +4,18 @@ use log::info;
 use maplit::hashmap;
 use uuid::Uuid;
 
-use crate::{order_types::{Side, PosSide}, data_structure::float_exp::FloatExp, client::types::TradeRecord};
+use crate::{order_types::{Side, PosSide, OrderType}, data_structure::float_exp::FloatExp, client::types::TradeRecord};
 
 #[derive(Debug, Clone, Eq)]
 pub struct ReservedOrder {
     pub id: Uuid,
+    pub order_type: OrderType,
     pub side: Side,
     pub pos_side: PosSide,
     pub price: FloatExp,
     pub amount: FloatExp,
-    pub is_stoploss: bool,
     pub pair_order_id: Option<String>,
-
+    pub pair_rsv_order_id: Option<Uuid>,
     pub is_ordered: bool,
 }
 
@@ -32,33 +32,34 @@ impl Hash for ReservedOrder {
 }
 
 impl ReservedOrder {
-    pub fn new(side: Side, pos_side: PosSide, price: FloatExp, amount: FloatExp, is_stoploss: bool) -> Self {
+    pub fn new(order_type: OrderType, side: Side, pos_side: PosSide, price: FloatExp, amount: FloatExp) -> Self {
         Self {
             id: Uuid::new_v4(),
+            order_type,
             side,
             pos_side,
             price,
             amount,
-            is_stoploss,
             pair_order_id: None,
+            pair_rsv_order_id: None,
             is_ordered: false,
         }
     }
 
-    pub fn is_fire(&self, prev_price: FloatExp, curr_price: FloatExp) -> bool {
+    pub fn is_fire(&self, prev_price: Option<FloatExp>, curr_price: FloatExp) -> bool {
         if self.is_ordered {
             return false;
         }
         let mut side = self.side;
-        if self.is_stoploss {
+        if self.order_type.is_stoploss() {
             side = side.inv();
         }
         match side {
             Side::Buy => {
-                prev_price > self.price && curr_price <= self.price
+                (prev_price.is_none() || prev_price.unwrap() > self.price) && curr_price <= self.price
             },
             Side::Sell => {
-                prev_price < self.price && curr_price >= self.price
+                (prev_price.is_none() || prev_price.unwrap() < self.price) && curr_price >= self.price
             },
         }
     }
@@ -84,11 +85,21 @@ impl ReservedOrdersManager {
         self.reserved_orders.clear();
     }
 
-    pub fn add_reserved_order(&mut self, side: Side, pos_side: PosSide, price: FloatExp, amount: FloatExp, is_stoploss: bool, pair_order_id: Option<String>) {
-        let mut reserved_order = ReservedOrder::new(side, pos_side, price, amount, is_stoploss);
+    pub fn add_reserved_order(&mut self, order_type: OrderType, side: Side, pos_side: PosSide, price: FloatExp, amount: FloatExp, pair_order_id: Option<String>) -> Uuid {
+        let mut reserved_order = ReservedOrder::new(order_type, side, pos_side, price, amount);
+        let ret = reserved_order.id;
         reserved_order.pair_order_id = pair_order_id;
         info!("add_reserved_order: {:?}", reserved_order);
         self.reserved_orders.insert(reserved_order.id, reserved_order);
+        ret
+    }
+
+    pub fn get_mut(&mut self, id: &Uuid) -> Option<&mut ReservedOrder> {
+        self.reserved_orders.get_mut(id)
+    }
+
+    pub fn remove(&mut self, id: &Uuid) -> Option<ReservedOrder> {
+        self.reserved_orders.remove(id)
     }
 
     /// 発火する注文を返す
@@ -99,7 +110,7 @@ impl ReservedOrdersManager {
             for (_, reserved_order) in &mut self.reserved_orders {
                 match self.prev_price {
                     Some(prev_price) => {
-                        if reserved_order.is_fire(prev_price, trade_price) {
+                        if reserved_order.is_fire(Some(prev_price), trade_price) {
                             reserved_order.is_ordered = true;
                             reserved_orders.push(reserved_order.clone());
                         }
@@ -109,6 +120,20 @@ impl ReservedOrdersManager {
                 }
             }
             self.prev_price = Some(trade_price);
+        }
+        reserved_orders
+    }
+
+    /// orderbookの任意番目のbid, askを超えていたら発火する注文を返す
+    /// 指値注文用
+    pub fn orderbook_handler(&mut self, bidask: [(f64, f64); 2]) -> Vec<ReservedOrder> {
+        let mut reserved_orders = vec![];
+        for (_, reserved_order) in &mut self.reserved_orders {
+            // buyはbid, sellはaskを超えていたら発火
+            if reserved_order.is_fire(None, FloatExp::from_f64(bidask[reserved_order.side as usize].0, self.price_exp)) {
+                reserved_order.is_ordered = true;
+                reserved_orders.push(reserved_order.clone());
+            }
         }
         reserved_orders
     }

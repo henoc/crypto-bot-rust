@@ -8,14 +8,15 @@ use hyper::StatusCode;
 use log::info;
 use once_cell::sync::OnceCell;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use serde_json::json;
 use tap::Pipe;
 use tokio::{spawn, net::TcpStream};
 use tokio_stream::StreamMap;
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream, tungstenite::Message};
 
-use crate::{symbol::{Symbol, Exchange}, client::{mail::send_mail, types::KLines}, error_types::BotError, utils::time::{UnixTimeUnit, now_floor_time}, config::KLineBuilderConfig, data_structure::float_exp::FloatExp, order_types::{PosSide, Side}};
+use crate::{symbol::{Symbol, Exchange}, client::{mail::send_mail, types::KLines}, error_types::BotError, utils::time::{UnixTimeUnit, now_floor_time}, config::{KLineBuilderConfig, TracingMMConfig}, data_structure::float_exp::FloatExp, order_types::{PosSide, Side}};
 
-use super::{kline_mmap::KLineMMap, time::{sleep_until_next, ScheduleExpr}, status_repository::StatusRepository};
+use super::{kline_mmap::KLineMMap, time::{sleep_until_next, ScheduleExpr}, status_repository::StatusRepository, useful_traits::StaticVarExt};
 
 #[async_trait]
 pub trait CaptureResult {
@@ -127,4 +128,26 @@ pub fn is_logical_postonly(side: Side, price: FloatExp, last_close: FloatExp) ->
 pub fn get_liquidity_limited_base(base_volume_1d: f64, exit_mean_period: Duration, unit_count: i64, contract_size: f64, doten: bool) -> f64 {
     let daily_trial = Duration::days(1).num_seconds() as f64 / exit_mean_period.num_seconds() as f64;
     base_volume_1d * contract_size / daily_trial / (unit_count as f64 + doten as i64 as f64) * 0.01
+}
+
+pub fn update_assets_inner(status: &OnceCell<RwLock<StatusRepository>>, config: &TracingMMConfig, current_margin: f64, base_volume_1d: f64) -> anyhow::Result<()> {
+    let mut fixed_margin = status.read()[&config.symbol]["fixed_margin"].as_f64().unwrap_or(0.0);
+    fixed_margin = fixed_margin.max(current_margin * 0.8);
+    let available_quote = fixed_margin * config.leverage;
+    let liquidity_limited_base = get_liquidity_limited_base(
+        base_volume_1d,
+        config.timeframe.0 * config.exit_mean_frame, 
+        config.max_side_positions, 
+        1.0, 
+        config.beta.r#in==config.beta.out && config.gamma.r#in==config.gamma.out
+    );
+
+    status.write().update(config.symbol, json!({
+        "fixed_margin": fixed_margin,
+        "available_quote": available_quote,
+        "liquidity_limited_base": liquidity_limited_base,
+    }))?;
+
+    info!("update_assets. fixed_margin: {}, available_quote: {}, liquidity_limited_base: {}", fixed_margin, available_quote, liquidity_limited_base);
+    Ok(())
 }
