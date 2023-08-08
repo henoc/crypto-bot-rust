@@ -23,8 +23,6 @@ static ORDERBOOK_DIFF: OnceCell<RwLock<[TimeQueue<(f64, f64)>; 2]>> = OnceCell::
 // for debug
 static ORDERBOOK_DRAWER: OnceCell<RwLock<OrderbookDrawer>> = OnceCell::new();
 
-const MAX_SIDE_POSITIONS: i64 = 3;
-
 const MAPPING_SIZE: i64 = 100;
 
 /// 0.005
@@ -33,7 +31,7 @@ const ORDER_MIN_AMOUNT: FloatExp = FloatExp::new(5, -3);
 const ORDERBOOK_DIFF_DURATION: StdDuration = StdDuration::from_secs(5);
 
 /// orderbookのn番目の価格を交差していたらreserved_orderを発火させる
-const ORDERBOOK_NTH: usize = 4;
+const ORDERBOOK_NTH: usize = 2;
 
 pub async fn start_tracingmm_coincheck(config: &'static TracingMMConfig) {
 
@@ -69,7 +67,7 @@ pub async fn start_tracingmm_coincheck(config: &'static TracingMMConfig) {
             let client = CoincheckClient::new(Some(CREDENTIALS.coincheck.clone()));
             update_assets(&client, config).await.capture_result(symbol).await.unwrap();
             loop {
-                sleep_until_next(ScheduleExpr::new(Duration::minutes(1), Duration::minutes(0))).await;
+                sleep_until_next(ScheduleExpr::new(Duration::hours(1), Duration::minutes(7))).await;
                 update_assets(&client, config).await.capture_result(symbol).await.unwrap();
             }
         }) => {}
@@ -89,18 +87,15 @@ pub async fn start_tracingmm_coincheck(config: &'static TracingMMConfig) {
 
 async fn cancel_all_orders(client: &CoincheckClient, symbol: Symbol) -> anyhow::Result<()> {
     RESERVED.write().cancel_all_orders();
-    let res = client.get_public(OpenOrderRequest {}).await?;
+    let res = client.get_private(OpenOrderRequest {}).await?;
     spawn(async move {
         let client = CoincheckClient::new(Some(CREDENTIALS.coincheck.clone()));
         join_all(
-            res.orders.iter().filter(|o| o.pair == symbol).map(|o| o.id).enumerate()
-            .map(|(i, order_id)|
-                client.cancel_order(order_id, i as i64 * 10))
+            res.orders.iter().filter(|o| o.pair == symbol).map(|o| o.id)
+            .map(|order_id|
+                client.cancel_order(order_id))
         ).await.into_iter().map(
-            |r| r.map(
-                |rr|
-                        rr.into_result().map(|_| ())
-            ).flatten_()
+            |r| r.map(|_| ())
         ).collect::<anyhow::Result<()>>()
         .capture_result(symbol).await.unwrap();
     });
@@ -109,7 +104,9 @@ async fn cancel_all_orders(client: &CoincheckClient, symbol: Symbol) -> anyhow::
 }
 
 async fn update_position(client: &CoincheckClient, symbol: Symbol) -> anyhow::Result<()> {
-    let (balance, trades) = try_join!(client.get_private(BalanceRequest, 0), client.get_private(TransactionsRequest, 10))?;
+    // nonce must be incrementedエラーが頻繁に出るので、一度に複数のリクエストを送らないようにする
+    let balance = client.get_private(BalanceRequest).await?;
+    let trades = client.get_private(TransactionsRequest).await?;
     let mut next_pos = [TracingMMPosition::new(symbol.price_precision(), symbol.amount_precision()), TracingMMPosition::new(symbol.price_precision(), symbol.amount_precision())];
     next_pos[0].pos = FloatExp::from_f64(balance.btc + balance.btc_reserved, symbol.amount_precision());
     // 約定履歴を逆順にたどる
@@ -123,7 +120,7 @@ async fn update_position(client: &CoincheckClient, symbol: Symbol) -> anyhow::Re
     }
 
     if !next_pos[0].pos.is_zero() {
-        next_pos[0].entry_price = (next_pos[0].init_notional / next_pos[0].pos).round(symbol.price_precision());
+        next_pos[0].entry_price = next_pos[0].init_notional.div_round(next_pos[0].pos, symbol.price_precision());
     }
     info!("update position: {:?}", next_pos);
     *POS.write() = next_pos;
@@ -148,7 +145,7 @@ async fn send_new_orders(config: &TracingMMConfig, prices: &TracingPriceResult) 
     let mut close_orders = vec![];
     let mut open_orders = vec![];
     // close order
-    for &side in &[Side::Buy] {
+    for &side in &[Side::Sell] {
         if pos[side.inv() as usize].pos.is_zero() {
             continue;
         }
@@ -158,7 +155,7 @@ async fn send_new_orders(config: &TracingMMConfig, prices: &TracingPriceResult) 
     // open order
     for &side in &[Side::Buy] {
         let price = FloatExp::from_f64(prices.by_side(side).r#in, config.symbol.price_precision());
-        let amount = next_open_amount(&STATUS, &POS, MAX_SIDE_POSITIONS, &config.symbol, side, price);
+        let amount = next_open_amount(&STATUS, &POS, config.max_side_positions, &config.symbol, side, price);
         if let Some(amount) = amount {
             open_orders.push(open_order(side, price, amount, last_close));
         }
@@ -213,7 +210,7 @@ async fn close_order(config: &TracingMMConfig, side: Side, price: FloatExp, amou
 
 async fn update_assets(client: &CoincheckClient, config: &TracingMMConfig) -> anyhow::Result<()> {
     let (balance, ticker) = try_join!(
-        client.get_private(BalanceRequest, 0),
+        client.get_private(BalanceRequest),
         client.get_public(TickerRequest {pair: config.symbol})
     )?;
     update_assets_inner(&STATUS, config, balance.jpy + balance.jpy_reserved, ticker.volume)?;
@@ -243,6 +240,7 @@ async fn subscribe_ws(symbol: Symbol) -> anyhow::Result<()> {
 
     let channels = vec![
         format!("{}-trades", symbol.to_native()),
+        format!("{}-orderbook", symbol.to_native()),
     ];
     
     for channel in channels {
@@ -268,6 +266,9 @@ async fn subscribe_ws(symbol: Symbol) -> anyhow::Result<()> {
 }
 
 fn handle_ws_msg(msg: Message, symbol: Symbol) -> anyhow::Result<()> {
+    if msg.is_pong() {
+        return Ok(());
+    }
     let msg = msg.to_text()?;
     let parsed = serde_json::from_str::<WsResponse>(msg)?;
     let orders = match parsed {
@@ -337,7 +338,7 @@ async fn fire_reserved_order(client: &CoincheckClient, symbol: Symbol, reserved_
     if let Some(pair_rsv_order_id) = reserved_order.pair_rsv_order_id {
         RESERVED.write().remove(&pair_rsv_order_id);
     }
-    let res = client.post(&req, 0).await?.into_result()?;
+    let res = client.post(&req).await?.into_result()?;
     info!("fire_reserved_order. type: {:?}, side: {:?}, price: {}, amount: {}, id: {}", reserved_order.order_type, reserved_order.side, reserved_order.price, reserved_order.amount, res.id);
     Ok(())
 }

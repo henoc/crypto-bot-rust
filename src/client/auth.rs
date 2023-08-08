@@ -1,7 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use log::info;
 use maplit::hashmap;
 use hyper::Method;
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use ring::hmac;
 
 use super::credentials::ApiCredentials;
@@ -41,8 +44,7 @@ pub fn bitflyer_auth<T: serde::Serialize>(method: Method, path: &str, body: Opti
 
 const COINCHECK_BASE_URL: &str = "https://coincheck.com";
 
-pub fn coincheck_auth<T: serde::Serialize>(path: &str, body: Option<&T>, api_key_secret: &ApiCredentials, nonce_incr: i64) -> anyhow::Result<HashMap<String, String>> {
-    let nonce = chrono::Utc::now().timestamp_millis() + nonce_incr;
+pub fn coincheck_auth<T: serde::Serialize>(path: &str, body: Option<&T>, api_key_secret: &ApiCredentials, nonce: i64) -> anyhow::Result<HashMap<String, String>> {
     // get body form-data string from body
     let body = match body {
         Some(x) => serde_json::to_string(x)?,

@@ -38,3 +38,8 @@ sudo ./target/x86_64-unknown-linux-gnu/release/bot --name crawler_bitflyer
 # ステータスファイルの確認など
 sudo ./bot --name crawler_bitflyer --debug
 ```
+
+## 実装メモ
+
+- static変数ではArcは不要
+    - Arcは（スレッド共有用）参照カウンタなので

@@ -29,6 +29,10 @@ impl FloatExp {
         Self::new((raw * 10f64.powi(-exp)).round() as i64, exp)
     }
 
+    pub fn from_f64_floor(raw: f64, exp: i32) -> Self {
+        Self::new((raw * 10f64.powi(-exp)).floor() as i64, exp)
+    }
+
     pub fn from_str(raw: String, exp: i32) -> Result<Self, std::num::ParseFloatError> {
         Ok(Self::new((raw.parse::<f64>()? * 10f64.powi(-exp)).round() as i64, exp))
     }
@@ -36,6 +40,11 @@ impl FloatExp {
     /// Round to the specified number of decimal places.
     pub fn round(&self, exp: i32) -> Self {
         Self::new((self.value as f64 * 10f64.powi(- exp + self.exp)).round() as i64, exp)
+    }
+
+    /// Round down to the specified number of decimal places.
+    pub fn floor(&self, exp: i32) -> Self {
+        Self::new((self.value as f64 * 10f64.powi(- exp + self.exp)).floor() as i64, exp)
     }
 
     pub fn abs(&self) -> Self {
@@ -50,6 +59,22 @@ impl FloatExp {
     pub fn min_exp_add(&self, rhs: Self) -> Self {
         let exp = self.exp.min(rhs.exp);
         Self::new(self.round(exp).value + rhs.round(exp).value, exp)
+    }
+
+    /// Divide and round to the specified number of decimal places.
+    pub fn div_round(&self, rhs: Self, new_exp: i32) -> Self {
+        let min_exp = self.exp.min(rhs.exp);
+        // f64での割り算なので答えが小さいとこのとき既に誤差が出るが、問題になったら修正する
+        let raw = self.round(min_exp).value as f64 / rhs.round(min_exp).value as f64;   // この時点ではexpは0
+        Self::from_f64(raw, new_exp)
+    }
+
+    /// Divide and round down to the specified number of decimal places.
+    pub fn div_floor(&self, rhs: Self, new_exp: i32) -> Self {
+        let min_exp = self.exp.min(rhs.exp);
+        // f64での割り算なので答えが小さいとこのとき既に誤差が出るが、問題になったら修正する
+        let raw = self.round(min_exp).value as f64 / rhs.round(min_exp).value as f64;   // この時点ではexpは0
+        Self::from_f64_floor(raw, new_exp)
     }
 
     pub const fn is_zero(&self) -> bool {
@@ -145,15 +170,6 @@ impl Mul<Self> for FloatExp {
 
     fn mul(self, rhs: Self) -> Self::Output {
         Self::new(self.value * rhs.value, self.exp + rhs.exp)
-    }
-}
-
-impl Div<Self> for FloatExp {
-    type Output = Self;
-
-    fn div(self, rhs: Self) -> Self::Output {
-        let exp = self.exp.min(rhs.exp);
-        Self::new(self.round(exp).value / rhs.round(exp).value, 0)  // 単位がなくなるので0
     }
 }
 

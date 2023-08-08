@@ -102,3 +102,28 @@ crawler_binance:
   kline_builder:
     - timeframe: 150s
       len: 300
+tracing_mm_coincheck:
+  strategy: tracing_mm
+  symbol:
+    base: BTC
+    quote: JPY
+    settlement: JPY
+    type: spot
+    exc: coincheck
+  timeframe: 150s
+  leverage: 1
+  ref_symbol:
+    base: BTC
+    quote: USDT
+    settlement: USDT
+    type: spot
+    exc: binance
+  atr_period: 25
+  beta:
+    in: 1.3210060519197127
+    out: 1.2603246058406332
+  gamma:
+    in: 2.9191809249668133
+    out: 19.724329965732878
+  losscut_rate: 0.051905814206480536
+  exit_mean_frame: 83

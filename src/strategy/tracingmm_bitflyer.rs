@@ -90,7 +90,7 @@ async fn update_position(client: &BitflyerClient, symbol: Symbol) -> anyhow::Res
         next_pos[idx].entry_price = if next_pos[idx].pos.is_zero() {
             FloatExp::new(0, symbol.price_precision())
         } else {
-            (next_pos[idx].init_notional / next_pos[idx].pos).round(symbol.price_precision())
+            next_pos[idx].init_notional.div_round(next_pos[idx].pos, symbol.price_precision())
         };
     }
     info!("update position: {:?}", next_pos);

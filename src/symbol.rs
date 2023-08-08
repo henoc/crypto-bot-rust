@@ -68,6 +68,7 @@ impl Display for Currency {
 pub struct Symbol {
     pub base: Currency,
     pub quote: Currency,
+    /// 決済通貨
     pub settlement: Currency,
     pub r#type: SymbolType,
     pub exc: Exchange,
@@ -101,6 +102,14 @@ impl Symbol {
 
     pub fn to_file_form(&self) -> String {
         format!("{}-{}-{}-{}", self.exc, self.base, self.quote, self.r#type)
+    }
+
+    #[inline]
+    pub const fn settlement_precision(&self) -> i32 {
+        match self.settlement {
+            Currency::JPY => 0,
+            _ => panic!("not implemented"),
+        }
     }
 
     #[inline]

@@ -6,7 +6,6 @@ use bot::{config::{Strategy, self}, logger, global_vars::{DEBUG, DebugFlag, get_
 use log::LevelFilter;
 use once_cell::sync::Lazy;
 use bot::symbol::Exchange;
-use serde::Deserialize;
 
 #[derive(Parser)]
 struct Args {
@@ -28,7 +27,7 @@ async fn main() -> anyhow::Result<()> {
     env::set_var("NAME", &args.name);
     DEBUG.set(DebugFlag::from_str(&args.debug).unwrap()).unwrap();
 
-    if get_debug()!=DebugFlag::None {
+    if get_debug()==DebugFlag::None {
         log::set_logger(&LOGGER)
             .map(|()| log::set_max_level(LevelFilter::Info))?;
     }
@@ -39,7 +38,17 @@ async fn main() -> anyhow::Result<()> {
             bot::strategy::shannon_gmo::start_shannon_gmo(strategy_config).await;
         },
         Strategy::TracingMm(strategy_config) => {
-            bot::strategy::tracingmm_bitflyer::start_tracingmm_bitflyer(strategy_config).await;
+            match strategy_config.symbol.exc {
+                Exchange::Bitflyer => {
+                    bot::strategy::tracingmm_bitflyer::start_tracingmm_bitflyer(strategy_config).await;
+                },
+                Exchange::Coincheck => {
+                    bot::strategy::tracingmm_coincheck::start_tracingmm_coincheck(strategy_config).await;
+                },
+                _ => {
+                    anyhow::bail!("{} is not supported", strategy_config.symbol.exc);
+                }
+            }
         },
         Strategy::Crawler(strategy_config) => {
             #[allow(unreachable_patterns)]

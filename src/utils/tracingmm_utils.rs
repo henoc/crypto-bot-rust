@@ -131,15 +131,52 @@ pub fn tracing_price(df: DataFrame, ref_df: DataFrame, mapping_size: i64, atr_pe
 pub fn next_open_amount(status: &'static OnceCell<RwLock<StatusRepository>>, pos: &'static OnceCell<RwLock<[TracingMMPosition; 2]>>, max_side_positions: i64, symbol: &Symbol, side: Side, price: FloatExp) -> Option<FloatExp> {
     let status = status.read()[symbol].clone();
     let quote_for_order = status["available_quote"].as_f64()?.min(status["liquidity_limited_base"].as_f64()? * max_side_positions as f64 * price.to_f64());
-    let order_amount = quote_for_order / max_side_positions as f64 / price.to_f64();
-
     let init_notional = pos.read()[side as usize].init_notional.to_f64();
-    if init_notional + order_amount * price.to_f64() < quote_for_order {
-        Some(FloatExp::from_f64(order_amount, symbol.amount_precision()))
+    let amount = open_amount_for_quote(
+        FloatExp::from_f64(quote_for_order, symbol.settlement_precision()),
+        max_side_positions,
+        FloatExp::from_f64(init_notional, symbol.settlement_precision()),
+        price,
+        symbol
+    );
+    if amount.is_none() {
+        info!("next_open_amount not enough quote. side: {:?}, quote_for_order: {}, init_notional: {}, price: {}", side, quote_for_order, init_notional, price);
+    }
+    amount
+}
+
+fn open_amount_for_quote(quote_for_order: FloatExp, max_side_positions: i64, init_notional: FloatExp, price: FloatExp, symbol: &Symbol) -> Option<FloatExp> {
+    let order_amount = (quote_for_order / max_side_positions).div_floor(price, symbol.amount_precision());
+    if init_notional + (order_amount * price).round(symbol.settlement_precision()) <= quote_for_order {
+        Some(order_amount)
     } else {
-        info!("next_open_amount not enough quote. side: {:?}, quote_for_order: {}, init_notional: {}, order_amount: {}", side, quote_for_order, init_notional, order_amount);
         None
     }
+}
+
+#[test]
+fn test_open_amount_for_quote() {
+    use crate::symbol::*;
+    let quote_for_order = FloatExp::from_f64(98368.571095144, 0);
+    let max_side_positions = 3;
+    let mut init_notional = FloatExp::from_f64(0., 0);
+    let price = vec![
+        FloatExp::from_f64(4157582., 0),
+        FloatExp::from_f64(4147582., 0),
+        FloatExp::from_f64(4137582., 0),
+    ];
+    let symbol = Symbol::new(Currency::BTC, Currency::JPY, SymbolType::Spot, Exchange::Coincheck);
+    let amount = open_amount_for_quote(quote_for_order, max_side_positions, init_notional, price[0], &symbol);
+    assert!(amount.is_some());
+    init_notional += (amount.unwrap() * price[0]).round(0);
+    let amount = open_amount_for_quote(quote_for_order, max_side_positions, init_notional, price[1], &symbol);
+    assert!(amount.is_some());
+    init_notional += (amount.unwrap() * price[1]).round(0);
+    let amount = open_amount_for_quote(quote_for_order, max_side_positions, init_notional, price[2], &symbol);
+    assert!(amount.is_some());
+    init_notional += (amount.unwrap() * price[2]).round(0);
+    let amount = open_amount_for_quote(quote_for_order, max_side_positions, init_notional, price[2], &symbol);
+    assert!(amount.is_none());
 }
 
 #[test]

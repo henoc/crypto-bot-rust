@@ -1,14 +1,37 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, str::FromStr, sync::{atomic::AtomicI64, Arc}};
+use std::time::Duration as StdDuration;
 
 use chrono::{Duration, DateTime, Utc};
 use hyper::{HeaderMap, header::CONTENT_TYPE, http::HeaderName};
+use log::info;
 use maplit::hashmap;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use serde_json::Value;
+use tokio::sync::Mutex;
 
-use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::{time::{UnixTimeUnit, datetime_utc_from_timestamp, deserialize_rfc3339}, serde::deserialize_f64_from_str, useful_traits::HashMapToHeaderMap}, order_types::Side, data_structure::float_exp::FloatExp};
+use crate::{symbol::{Symbol, SymbolType, Exchange, Currency}, utils::{time::{UnixTimeUnit, datetime_utc_from_timestamp, deserialize_rfc3339}, serde::deserialize_f64_from_str, useful_traits::{HashMapToHeaderMap, ResultFlatten}}, order_types::Side, data_structure::float_exp::FloatExp};
 
 use super::{method::{get, GetRequest, HasPath, EmptyQueryRequest, post, delete}, types::{KLines, TradeRecord}, credentials::ApiCredentials, auth::coincheck_auth};
+
+static PREV_NONCE: Lazy<Mutex<i64>> = Lazy::new(|| Mutex::new(0));
+
+const NONCE_INTERVAL_MS: i64 = 100;
+
+/// こちらでnonceを被らないように値を足してもサーバー側での到着が逆になればエラーになるので、
+/// sleepを入れて順序をつけている
+async fn get_nonce() -> i64 {
+    let mut nonce = chrono::Utc::now().timestamp_millis();
+    let mut prev_nonce = PREV_NONCE.lock().await;
+    let curr = nonce;
+    if *prev_nonce + NONCE_INTERVAL_MS > nonce {
+        nonce = *prev_nonce + NONCE_INTERVAL_MS;
+    }
+    *prev_nonce = nonce;
+    tokio::time::sleep(StdDuration::from_millis((nonce - curr) as u64)).await;
+    info!("nonce: {}", nonce);
+    nonce
+}
 
 pub struct CoincheckClient {
     client: reqwest::Client,
@@ -30,27 +53,27 @@ impl CoincheckClient {
         query: S,
     ) -> anyhow::Result<S::Response> {
         get(&self.client, &self.endpoint, S::PATH, HeaderMap::new(), query).await
-            .map(|x| x.1)
+            .map(|x: (_, RestResponse<S::Response>)| x.1.into_result()).flatten_()
     }
 
-    pub async fn get_private<S: GetRequest + HasPath>(&self, query: S, nonce_incr: i64) -> anyhow::Result<S::Response> {
-        let header = coincheck_auth::<Value>(S::PATH, None, self.api_credentials.as_ref().unwrap(), nonce_incr)?;
-        let res = get(&self.client, &self.endpoint, S::PATH, header.to_header_map()?, query).await?;
-        Ok(res.1)
+    pub async fn get_private<S: GetRequest + HasPath>(&self, query: S) -> anyhow::Result<S::Response> {
+        let header = coincheck_auth::<Value>(S::PATH, None, self.api_credentials.as_ref().unwrap(), get_nonce().await)?;
+        let res: (_, RestResponse<S::Response>) = get(&self.client, &self.endpoint, S::PATH, header.to_header_map()?, query).await?;
+        res.1.into_result()
     }
 
-    pub async fn post<S: Serialize + HasPath>(&self, body: &S, nonce_incr: i64) -> anyhow::Result<S::Response> {
-        let header = coincheck_auth(S::PATH, Some(body), self.api_credentials.as_ref().unwrap(), nonce_incr)?;
-        let res = post(&self.client, &self.endpoint, S::PATH, header.to_header_map()?, body).await?;
-        Ok(res.1)
+    pub async fn post<S: Serialize + HasPath>(&self, body: &S) -> anyhow::Result<S::Response> {
+        let header = coincheck_auth(S::PATH, Some(body), self.api_credentials.as_ref().unwrap(), get_nonce().await)?;
+        let res: (_, RestResponse<S::Response>) = post(&self.client, &self.endpoint, S::PATH, header.to_header_map()?, body).await?;
+        res.1.into_result()
     }
 
     /// pathに引数をもつ特殊APIなので直に実装
-    pub async fn cancel_order(&self, id: i64, nonce_incr: i64) -> anyhow::Result<RestResponse<CancelOrderResponse>> {
+    pub async fn cancel_order(&self, id: i64) -> anyhow::Result<CancelOrderResponse> {
         let path = cancel_order_path(id);
-        let header = coincheck_auth::<Value>(&path, None, self.api_credentials.as_ref().unwrap(), nonce_incr)?;
-        let res = delete(&self.client, &self.endpoint, &path, header.to_header_map()?).await?;
-        Ok(res.1)
+        let header = coincheck_auth::<Value>(&path, None, self.api_credentials.as_ref().unwrap(), get_nonce().await)?;
+        let res: (_, RestResponse<CancelOrderResponse>) = delete(&self.client, &self.endpoint, &path, header.to_header_map()?).await?;
+        res.1.into_result()
     }
 }
 
@@ -65,7 +88,7 @@ impl<T> RestResponse<T> {
     pub fn into_result(self) -> anyhow::Result<T> {
         match self {
             RestResponse::Ok(x) => Ok(x),
-            RestResponse::Err(x) => Err(anyhow::anyhow!(x.error)),
+            RestResponse::Err(x) => Err(anyhow::anyhow!("Received error message: {}", x.error)),
         }
     }
 }
@@ -404,7 +427,6 @@ impl GetRequest for TickerRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TickerResponse {
-    pub success: bool,
     pub last: f64,
     pub bid: f64,
     pub ask: f64,
@@ -541,9 +563,23 @@ fn test_deserialize_open_orders() {
 }
 
 #[tokio::test]
+async fn test_open_orders() {
+    let client = CoincheckClient::new(Some(crate::client::credentials::CREDENTIALS.coincheck.clone()));
+    let res: OpenOrderResponse = client.get_private(OpenOrderRequest).await.unwrap();
+    println!("{:?}", res);
+}
+
+#[tokio::test]
+async fn test_balance() {
+    let client = CoincheckClient::new(Some(crate::client::credentials::CREDENTIALS.coincheck.clone()));
+    let res = client.get_private(BalanceRequest).await.unwrap();
+    println!("{:?}", res);
+}
+
+#[tokio::test]
 async fn test_get_transactions() {
     let client = CoincheckClient::new(Some(crate::client::credentials::CREDENTIALS.coincheck.clone()));
-    let _res: TransactionsResponse = client.get_private(TransactionsRequest, 0).await.unwrap();
+    let _res: TransactionsResponse = client.get_private(TransactionsRequest).await.unwrap();
 }
 
 #[tokio::test]
@@ -554,6 +590,6 @@ async fn test_post_order() {
         rate: FloatExp::from_f64(1000000.0, 0),
         amount: FloatExp::from_f64(0.005, -3),
         time_in_force: None,
-    }), 0).await.unwrap();
+    })).await.unwrap();
     println!("{:?}", res);
 }

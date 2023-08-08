@@ -118,7 +118,7 @@ async fn create_order(client: &GmoClient, symbol: &Symbol, virtual_amount: &Virt
             .min(
                 // 最小ロットを超えられるprice
                 floor_int(
-                    (quote / (base_amount + FloatExp::new(1, symbol.amount_precision()) * 2)).to_i64(),
+                    quote.div_round(base_amount + FloatExp::new(1, symbol.amount_precision()) * 2, 0).to_i64(),
                     (-symbol.amount_precision()) as u32
                 )
             )
@@ -126,7 +126,7 @@ async fn create_order(client: &GmoClient, symbol: &Symbol, virtual_amount: &Virt
             ceil_int(last_price, (-symbol.amount_precision()) as u32)
             .max(
                 ceil_int(
-                    (quote / (base_amount - FloatExp::new(1, symbol.amount_precision()) * 2)).to_i64(),
+                    quote.div_round(base_amount - FloatExp::new(1, symbol.amount_precision()) * 2, 0).to_i64(),
                     (-symbol.amount_precision()) as u32
                 )
             )
