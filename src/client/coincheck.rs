@@ -16,7 +16,7 @@ use super::{method::{get, GetRequest, HasPath, EmptyQueryRequest, post, delete},
 
 static PREV_NONCE: Lazy<Mutex<i64>> = Lazy::new(|| Mutex::new(0));
 
-const NONCE_INTERVAL_MS: i64 = 100;
+const NONCE_INTERVAL_MS: i64 = 50;
 
 /// こちらでnonceを被らないように値を足してもサーバー側での到着が逆になればエラーになるので、
 /// sleepを入れて順序をつけている

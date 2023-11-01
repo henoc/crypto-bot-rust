@@ -51,15 +51,15 @@ pub async fn start_tracingmm_coincheck(config: &'static TracingMMConfig) {
 
     let symbol = config.symbol;
 
-    let cancel_ahead = StdDuration::from_secs(1);
+    let cancel_ahead = Duration::seconds(1);
 
     select! {
         _ = spawn(async move {
             let client = CoincheckClient::new(Some(CREDENTIALS.coincheck.clone()));
             loop {
-                sleep_until_next(ScheduleExpr::new(Duration::minutes(1), Duration::minutes(0))).await;
+                sleep_until_next(ScheduleExpr::new_ahead(config.timeframe.0, cancel_ahead)).await;
                 cancel_all_orders(&client, symbol).await.capture_result(symbol).await.unwrap();
-                tokio::time::sleep(cancel_ahead).await;
+                tokio::time::sleep(cancel_ahead.to_std().unwrap()).await;
                 update_order(&client, config).await.capture_result(symbol).await.unwrap();
             }
         }) => {}
@@ -67,7 +67,7 @@ pub async fn start_tracingmm_coincheck(config: &'static TracingMMConfig) {
             let client = CoincheckClient::new(Some(CREDENTIALS.coincheck.clone()));
             update_assets(&client, config).await.capture_result(symbol).await.unwrap();
             loop {
-                sleep_until_next(ScheduleExpr::new(Duration::hours(1), Duration::minutes(7))).await;
+                sleep_until_next(ScheduleExpr::new(Duration::hours(1), Duration::minutes(7) + Duration::seconds(15))).await;
                 update_assets(&client, config).await.capture_result(symbol).await.unwrap();
             }
         }) => {}
