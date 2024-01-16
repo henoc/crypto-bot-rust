@@ -172,11 +172,69 @@ impl Serialize for OrderPrice {
     }
 }
 
+#[derive(Debug)]
+pub enum TradingType {
+    /// 現物
+    Spot,
+    /// 制度信用新規
+    OpenSystemMargin,
+    /// 制度信用返済
+    CloseSystemMargin,
+    /// 一般信用新規
+    OpenGeneralMargin,
+    /// 一般信用返済
+    CloseGeneralMargin,
+}
+
+#[derive(Debug)]
+pub enum TimeInForce {
+    Interday,
+}
+
+#[derive(Debug)]
+pub enum StopOrderType {
+    None,
+}
+
+#[derive(Debug)]
+pub enum StopOrderTriggerPrice {
+    None,
+}
+
+#[derive(Debug)]
+pub enum StopOrderPrice {
+    None,
+}
+
+/// 信用建玉返済順序
+#[derive(Debug)]
+pub enum CloseMarginOrder {
+    /// 現物または信用新規
+    None,
+    /// 建日順
+    DateTime,
+}
+
+/// 現引、現渡時のポジション税区分
+#[derive(Debug)]
+pub enum PositionTaxAccountType {
+    /// 現引、現渡以外
+    None,
+}
+
+
+
 impl_serialize!(TaxAccountType, Specific => "1");
 impl_serialize!(StockMarket, Tsc => "00");
 impl_serialize!(OrderSide, Buy => "3", Sell => "1");
 impl_serialize!(OrderTime, None => "0", Opening => "2", Closing => "4", MarketIfNotExecuted => "6");
-
+impl_serialize!(TradingType, Spot => "0", OpenSystemMargin => "2", CloseSystemMargin => "4", OpenGeneralMargin => "6", CloseGeneralMargin => "8");
+impl_serialize!(TimeInForce, Interday => "0");
+impl_serialize!(StopOrderType, None => "0");
+impl_serialize!(StopOrderTriggerPrice, None => "0");
+impl_serialize!(StopOrderPrice, None => "*");
+impl_serialize!(CloseMarginOrder, None => "*", DateTime => "2");
+impl_serialize!(PositionTaxAccountType, None => "*");
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -187,12 +245,21 @@ pub struct OrderRequest {
     s_baibai_kubun: OrderSide,
     s_condition: OrderTime,
     s_order_price: OrderPrice,
+    s_order_suryou: u64,
+    s_genkin_shinyou_kubun: TradingType,
+    s_order_expire_day: TimeInForce,
+    s_gyakusasi_order_type: StopOrderType,
+    s_gyakusasi_zyouken: StopOrderTriggerPrice,
+    s_gyakusasi_price: StopOrderPrice,
+    s_tatebi_type: CloseMarginOrder,
+    s_tategyoku_zyoutoeki_kazei_c: PositionTaxAccountType,
+    s_second_password: String,
 }
 
 impl TachibanaRequest for OrderRequest {
     const PATH: &'static str = "request/";
     const CLMID: &'static str = "CLMKabuNewOrder";
-    type Response = ();
+    type Response = OrderResponse;
 }
 
 
@@ -279,6 +346,17 @@ pub struct LoginResponse {
     pub s_url_master: String,
     pub s_url_price: String,
     pub s_url_event: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderResponse {
+    pub s_result_code: String,
+    pub s_result_text: String,
+    pub s_warning_code: String,
+    pub s_warning_text: String,
+    pub s_order_number: String,
+    pub s_order_date: String,
 }
 
 #[derive(Debug, Deserialize)]
