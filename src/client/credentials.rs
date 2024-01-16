@@ -7,6 +7,7 @@ pub struct Credentials {
     pub gmo: ApiCredentials,
     pub bitflyer: ApiCredentials,
     pub coincheck: ApiCredentials,
+    pub tachibana: TachibanaCredentials,
     pub mail: MailCredentials,
 }
 
@@ -21,6 +22,13 @@ pub struct MailCredentials {
     pub user: String,
     pub password: String,
     pub sendto: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TachibanaCredentials {
+    pub user_id: String,
+    pub password1: String,
+    pub password2: String,
 }
 
 pub static CREDENTIALS: Lazy<Credentials> = Lazy::new(|| {

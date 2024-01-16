@@ -43,9 +43,14 @@ duct = "0.13.6"
 strum = { version = "0.25", features = ["derive"] }
 ordered-float = "3.7.0"
 crossterm = "0.26.1"
+percent-encoding = "2.3.1"
+encoding_rs = "0.8.33"
 
 [profile.dev]
 panic = "abort"
 
 [profile.release]
 panic = "abort"
+# https://stackoverflow.com/questions/70787157/how-to-trace-errors-when-using-anyhow
+debug = true
+

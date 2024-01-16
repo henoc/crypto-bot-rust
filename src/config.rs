@@ -14,6 +14,7 @@ pub enum Strategy {
     Shannon(ShannonConfig),
     TracingMm(TracingMMConfig),
     Crawler(CrawlerConfig),
+    Abcdf(AbcdfConfig),
 }
 
 #[derive(Debug, Deserialize)]
@@ -92,4 +93,9 @@ pub struct TracingMMConfig {
 
 fn max_side_positions_default() -> i64 {
     3
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AbcdfConfig {
+    
 }

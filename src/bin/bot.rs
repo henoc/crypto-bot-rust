@@ -70,6 +70,9 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         },
+        Strategy::Abcdf(strategy_config) => {
+            bot::strategy::abcdf_tachibana::start_abcdf(strategy_config).await;
+        },
     }
     Ok(())
 }

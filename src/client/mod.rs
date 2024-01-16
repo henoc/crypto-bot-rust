@@ -7,3 +7,4 @@ pub mod mail;
 pub mod types;
 pub mod bitflyer;
 pub mod binance;
+pub mod tachibana;

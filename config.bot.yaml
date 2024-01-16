@@ -127,3 +127,5 @@ tracing_mm_coincheck:
     out: 19.724329965732878
   losscut_rate: 0.051905814206480536
   exit_mean_frame: 83
+abcdf_tachibana:
+  strategy: abcdf

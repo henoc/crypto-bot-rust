@@ -11,6 +11,8 @@ aiohttp = "*"
 python-engineio = "*"
 pybotters = "*"
 pyyaml = "*"
+requests = "*"
+urllib3 = "*"
 
 [dev-packages]
 
