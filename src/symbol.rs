@@ -30,6 +30,7 @@ impl Display for Exchange {
 pub enum SymbolType {
     Perp,
     Spot,
+    Margin,
 }
 
 impl SymbolType {
@@ -50,6 +51,9 @@ pub enum Currency {
     XRP,
     JPY,
     USDT,
+    /// NTT
+    #[serde(rename = "9432")]
+    T9432,
 }
 
 impl Currency {
@@ -90,12 +94,14 @@ impl Symbol {
             Exchange::Gmo => match self.r#type {
                 SymbolType::Perp => format!("{}_{}", self.base, self.quote),
                 SymbolType::Spot => format!("{}", self.base),
+                _ => panic!("not implemented"),
             },
             Exchange::Coincheck => format!("{}_{}", self.base.to_string().to_lowercase(), self.quote.to_string().to_lowercase()),
             Exchange::Binance => format!("{}{}", self.base, self.quote),
             Exchange::Bitflyer => match self.r#type {
                 SymbolType::Perp => format!("FX_{}_{}", self.base, self.quote),
                 SymbolType::Spot => format!("{}_{}", self.base, self.quote),
+                _ => panic!("not implemented"),
             }
         }
     }

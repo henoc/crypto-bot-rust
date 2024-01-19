@@ -45,6 +45,7 @@ async fn subscribe_trades(symbol: Symbol, kline_config: &Vec<KLineBuilderConfig>
     let stream_name = match symbol.r#type {
         SymbolType::Spot => "stream".to_owned(),
         SymbolType::Perp => "fstream".to_owned(),
+        _ => anyhow::bail!("Unsupported symbol type"),
     };
     let (socket, _) = connect_async(
         Url::parse(&format!("wss://{}.binance.com/ws/{}@aggTrade", stream_name, symbol.to_native().to_lowercase())).unwrap()).await?;

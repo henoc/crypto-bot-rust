@@ -10,6 +10,15 @@ pub fn deserialize_f64_from_str<'de, D>(deserializer: D) -> Result<f64, D::Error
         Ok(f)
     }
 
+pub fn deserialize_u64_from_str<'de, D>(deserializer: D) -> Result<u64, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let f = u64::from_str(&s).map_err(serde::de::Error::custom)?;
+        Ok(f)
+    }
+
 pub fn serialize_u32_to_str<S>(x: &u32, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,

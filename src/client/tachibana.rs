@@ -1,15 +1,15 @@
 use std::sync::atomic::AtomicU32;
 
-use chrono::{DateTime, Utc, FixedOffset};
+use chrono::{DateTime, Utc, FixedOffset, NaiveDate, Timelike};
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned, Deserializer};
 use serde_json::{json, Value, Map};
 use url::Url;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use encoding_rs::SHIFT_JIS;
 
-use crate::{utils::{time::JST, serde::{deserialize_f64_from_str, serialize_u32_to_str}, useful_traits::StaticVarExt, json_utils::object_update}, symbol::Currency};
+use crate::{utils::{time::JST, serde::{deserialize_f64_from_str, serialize_u32_to_str, deserialize_u64_from_str}, useful_traits::StaticVarExt, json_utils::object_update}, symbol::{Currency, Symbol}};
 
 use super::credentials::TachibanaCredentials;
 
@@ -55,7 +55,9 @@ impl TachibanaClient {
         self.send(LogoutRequest).await.map(|_| ())
     }
 
-    pub async fn send<S: TachibanaRequest>(&self, query: S) -> anyhow::Result<S::Response> {
+    pub async fn send<S: TachibanaRequest>(&self, mut query: S) -> anyhow::Result<S::Response> {
+        query.set_password2(self.api_credentials.password2.clone());
+        query.validation()?;
         let params = query.to_json();
         let mut url = Url::parse(ENDPOINT)?.join( S::PATH)?.join(format!("{}/", SESSION_ID.read()).as_str())?;
         let query = utf8_percent_encode(params.to_string().as_str(), NON_ALPHANUMERIC).to_string();
@@ -89,6 +91,11 @@ pub trait TachibanaRequest: Serialize + Sized {
         object_update(&mut j, common).unwrap();
         j
     }
+    fn set_password2(&mut self, _password2: String) {
+    }
+    fn validation(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -113,128 +120,117 @@ impl TachibanaRequest for LogoutRequest {
     type Response = SimpleResponse;
 }
 
-macro_rules! impl_serialize {
-    ($t:ident, $($a:ident => $b:expr),+) => {
-        impl Serialize for $t {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-                where
-                    S: serde::Serializer {
-                match self {
-                    $(
-                        $t::$a => serializer.serialize_str($b),
-                    )+
-                }
-            }
-        }
-    };
-}
-
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum TaxAccountType {
+    #[serde(rename = "1")]
     Specific    // 特定口座
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum StockMarket {
+    #[serde(rename = "00")]
     Tsc,    // 東証
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum OrderSide {
+    #[serde(rename = "3")]
     Buy,
+    #[serde(rename = "1")]
     Sell,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum OrderTime {
+    #[serde(rename = "0")]
     None,               // 指定なし
+    #[serde(rename = "2")]
     Opening,                // 寄付
+    #[serde(rename = "4")]
     Closing,                // 引け
+    #[serde(rename = "6")]
     MarketIfNotExecuted,    // 不成
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum OrderPrice {
+    #[serde(rename = "*")]
     None,               // 指定なし（逆指値、現引、現渡）
+    #[serde(rename = "0")]
     Market,             // 成行
-    Limit(u64),         // 指値
+    // #[serde(serialize_with = "serialize_limit_price")]
+    // /// TODO: 呼び値単位
+    // Limit(f64),         // 指値
 }
 
-impl Serialize for OrderPrice {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer {
-        match self {
-            OrderPrice::None => serializer.serialize_str("*"),
-            OrderPrice::Market => serializer.serialize_str("0"),
-            OrderPrice::Limit(x) => serializer.serialize_str(&x.to_string()),
-        }
-    }
-}
+// fn serialize_limit_price<S>(x: &f64, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: serde::Serializer,
+//     {
+//         serializer.serialize_str(&x.to_string())
+//     }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Clone, Copy)]
 pub enum TradingType {
+    #[serde(rename = "0")]
     /// 現物
     Spot,
+    #[serde(rename = "2")]
     /// 制度信用新規
     OpenSystemMargin,
+    #[serde(rename = "4")]
     /// 制度信用返済
     CloseSystemMargin,
+    #[serde(rename = "6")]
     /// 一般信用新規
     OpenGeneralMargin,
+    #[serde(rename = "8")]
     /// 一般信用返済
     CloseGeneralMargin,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum TimeInForce {
+    #[serde(rename = "0")]
     Interday,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum StopOrderType {
+    #[serde(rename = "0")]
     None,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum StopOrderTriggerPrice {
+    #[serde(rename = "0")]
     None,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum StopOrderPrice {
+    #[serde(rename = "*")]
     None,
 }
 
 /// 信用建玉返済順序
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum CloseMarginOrder {
+    #[serde(rename = "*")]
     /// 現物または信用新規
     None,
+    #[serde(rename = "2")]
     /// 建日順
     DateTime,
 }
 
 /// 現引、現渡時のポジション税区分
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum PositionTaxAccountType {
+    #[serde(rename = "*")]
     /// 現引、現渡以外
     None,
 }
-
-
-
-impl_serialize!(TaxAccountType, Specific => "1");
-impl_serialize!(StockMarket, Tsc => "00");
-impl_serialize!(OrderSide, Buy => "3", Sell => "1");
-impl_serialize!(OrderTime, None => "0", Opening => "2", Closing => "4", MarketIfNotExecuted => "6");
-impl_serialize!(TradingType, Spot => "0", OpenSystemMargin => "2", CloseSystemMargin => "4", OpenGeneralMargin => "6", CloseGeneralMargin => "8");
-impl_serialize!(TimeInForce, Interday => "0");
-impl_serialize!(StopOrderType, None => "0");
-impl_serialize!(StopOrderTriggerPrice, None => "0");
-impl_serialize!(StopOrderPrice, None => "*");
-impl_serialize!(CloseMarginOrder, None => "*", DateTime => "2");
-impl_serialize!(PositionTaxAccountType, None => "*");
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -256,12 +252,111 @@ pub struct OrderRequest {
     s_second_password: String,
 }
 
+impl OrderRequest {
+    pub fn new(base: Currency, side: OrderSide, order_time: OrderTime, price: OrderPrice, amount: u64, trading_type: TradingType) -> Self {
+        Self {
+            s_zyoutoeki_kazei_c: TaxAccountType::Specific,
+            s_issue_code: base,
+            s_sizyou_c: StockMarket::Tsc,
+            s_baibai_kubun: side,
+            s_condition: order_time,
+            s_order_price: price,
+            s_order_suryou: amount,
+            s_genkin_shinyou_kubun: trading_type,
+            s_order_expire_day: TimeInForce::Interday,
+            s_gyakusasi_order_type: StopOrderType::None,
+            s_gyakusasi_zyouken: StopOrderTriggerPrice::None,
+            s_gyakusasi_price: StopOrderPrice::None,
+            s_tatebi_type: match trading_type {
+                TradingType::CloseSystemMargin | TradingType::CloseGeneralMargin => CloseMarginOrder::DateTime,
+                _ => CloseMarginOrder::None,
+            },
+            s_tategyoku_zyoutoeki_kazei_c: PositionTaxAccountType::None,
+            s_second_password: "".to_string(),
+        }
+    }
+}
+
 impl TachibanaRequest for OrderRequest {
     const PATH: &'static str = "request/";
     const CLMID: &'static str = "CLMKabuNewOrder";
     type Response = OrderResponse;
+    fn set_password2(&mut self, password2: String) {
+        self.s_second_password = password2;
+    }
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarginBalanceRequest {
+    #[serde(serialize_with = "serialize_u32_to_str")]
+    s_hituke_index: u32,
+}
+
+impl TachibanaRequest for MarginBalanceRequest {
+    const PATH: &'static str = "request/";
+    const CLMID: &'static str = "CLMZanKaiSinyouSinkidateSyousai";
+    type Response = MarginBalanceResponse;
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarginPositionRequest {
+    pub s_issue_code: MarginPositionRequestBase,
+}
+
+impl TachibanaRequest for MarginPositionRequest {
+    const PATH: &'static str = "request/";
+    const CLMID: &'static str = "CLMShinyouTategyokuList";
+    type Response = MarginPositionResponse;
+}
+
+#[derive(Debug, Serialize)]
+pub enum MarginPositionRequestBase {
+    #[serde(serialize_with = "serialize_currency")]
+    Currency(Currency),
+    #[serde(rename = "")]
+    All,
+}
+
+fn serialize_currency<S>(x: &Currency, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&x.to_string())
+    }
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PriceHistoryRequest {
+    pub s_issue_code: Currency,
+    pub s_sizyou_c: StockMarket,
+}
+
+impl TachibanaRequest for PriceHistoryRequest {
+    const PATH: &'static str = "price/";
+    const CLMID: &'static str = "CLMMfdsGetMarketPriceHistory";
+    type Response = PriceHistoryResponse;
+    fn validation(&self) -> anyhow::Result<()> {
+        let now = Utc::now().with_timezone(&JST());
+        if now.hour() >= 8 && now.hour() < 15 {
+            anyhow::bail!("validation failed for accessing PriceHistory during business hours");
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DBRecordRequest {
+
+}
+
+impl TachibanaRequest for DBRecordRequest {
+    const PATH: &'static str = "master/";
+    const CLMID: &'static str = "CLMMfdsGetMasterData";
+    type Response = Value;
+}
 
 #[derive(Debug)]
 pub struct RestResponse<T>(pub T);
@@ -362,11 +457,136 @@ pub struct OrderResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarginBalanceResponse {
-    s_hituke: String,
+    pub s_hituke: String,
     #[serde(deserialize_with = "deserialize_f64_from_str")]
-    s_azukari_kin: f64,
+    pub s_azukari_kin: f64,
     #[serde(deserialize_with = "deserialize_f64_from_str")]
-    s_sinyou_sinkidate_kanougaku: f64,
+    pub s_sinyou_sinkidate_kanougaku: f64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarginPositionResponse {
+    pub a_shinyou_tategyoku_list: Vec<MarginPositionItem>,
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_hyouka_soneki_goukei_kaidate: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_hyouka_soneki_goukei_uridate: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_tokutei_hyouka_soneki_goukei: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_kaitate_daikin: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_uritate_daikin: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_total_daikin: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarginPositionItem {
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_order_tategyoku_number: u64,
+    pub s_order_issue_code: CodeResponse,
+    pub s_order_baibai_kubun: OrderSide,
+    pub s_order_bensai_kubun: MarginPositionType,
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_order_tategyoku_suryou: u64,
+    #[serde(deserialize_with = "deserialize_f64_from_str")]
+    pub s_order_tategyoku_tanka: f64,
+    #[serde(deserialize_with = "deserialize_f64_from_str")]
+    pub s_order_hyouka_tanka: f64,
+    #[serde(deserialize_with = "deserialize_f64_from_str")]
+    pub s_order_gaisan_hyouka_soneki: f64,
+    #[serde(deserialize_with = "deserialize_f64_from_str")]
+    pub s_order_gaisan_hyouka_soneki_ritu: f64,
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_tategyoku_daikin: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_order_tate_tesuryou: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_order_gyakuhibu: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_order_zyun_hibu: u64,
+    #[serde(deserialize_with = "deserialize_date_from_str")]
+    pub s_order_tategyoku_day: NaiveDate,
+    #[serde(deserialize_with = "deserialize_date_from_str")]
+    pub s_order_tategyoku_kizitu_day: NaiveDate,
+    /// s_order_tategyoku_suryouとどう違うのか不明
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_tategyoku_suryou: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_order_yakuzyou_hensai_kabusu: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_order_genbiki_genwatasi_kabusu: u64,
+    /// 注文中の数量
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_order_order_suryou: u64,
+    #[serde(deserialize_with = "deserialize_u64_from_str")]
+    pub s_order_hensai_kanou_suryou: u64,
+}
+
+fn deserialize_date_from_str<'de, D>(deserializer: D) -> Result<NaiveDate, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let d = NaiveDate::parse_from_str(&s, "%Y%m%d").map_err(serde::de::Error::custom)?;
+        Ok(d)
+    }
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum CodeResponse {
+    Defined(Currency),
+    Raw(String),
+}
+
+#[derive(Debug, Deserialize)]
+pub enum MarginPositionType {
+    /// なし
+    #[serde(rename = "00")]
+    None,
+    #[serde(rename = "26")]
+    SystemHalfYear,
+    #[serde(rename = "29")]
+    SystemUnlimited,
+    #[serde(rename = "36")]
+    GeneralHalfYear,
+    #[serde(rename = "39")]
+    GeneralUnlimited,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PriceHistoryResponse {
+    pub a_clm_mfds_get_market_price_history: Vec<PriceHistoryItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PriceHistoryItem {
+    #[serde(rename = "sDate", deserialize_with = "deserialize_date_from_str")]
+    pub s_date: NaiveDate,
+    // #[serde(rename = "sDOP", deserialize_with = "deserialize_f64_from_str")]
+    // pub open: f64,
+    // #[serde(rename = "sDHP", deserialize_with = "deserialize_f64_from_str")]
+    // pub high: f64,
+    // #[serde(rename = "sDLP", deserialize_with = "deserialize_f64_from_str")]
+    // pub low: f64,
+    // #[serde(rename = "sDPP", deserialize_with = "deserialize_f64_from_str")]
+    // pub close: f64,
+    // #[serde(rename = "sDV", deserialize_with = "deserialize_f64_from_str")]
+    // pub volume: f64,
+    #[serde(rename = "pDOPxK", deserialize_with = "deserialize_f64_from_str")]
+    pub open_adj: f64,
+    #[serde(rename = "pDHPxK", deserialize_with = "deserialize_f64_from_str")]
+    pub high_adj: f64,
+    #[serde(rename = "pDLPxK", deserialize_with = "deserialize_f64_from_str")]
+    pub low_adj: f64,
+    #[serde(rename = "pDPPxK", deserialize_with = "deserialize_f64_from_str")]
+    pub close_adj: f64,
+    #[serde(rename = "pDVxK", deserialize_with = "deserialize_f64_from_str")]
+    pub volume_adj: f64,
 }
 
 #[tokio::test]
@@ -375,4 +595,29 @@ async fn test_tachibana_client() {
     client.login().await.unwrap();
     assert!(SESSION_ID.get().is_some());
     client.logout().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_tachibana_order() {
+    let client = TachibanaClient::new(crate::client::credentials::CREDENTIALS.tachibana.clone());
+    client.login().await.unwrap();
+    let res = client.send(OrderRequest::new(
+        Currency::T9432,
+        OrderSide::Buy,
+        OrderTime::None,
+        OrderPrice::Market,
+        100,
+        TradingType::OpenSystemMargin,
+    )).await.unwrap();
+    assert_eq!(res.s_result_code, "0");
+}
+
+#[tokio::test]
+async fn test_tachibana_margin_position() {
+    let client = TachibanaClient::new(crate::client::credentials::CREDENTIALS.tachibana.clone());
+    client.login().await.unwrap();
+    let res = client.send(MarginPositionRequest {
+        s_issue_code: MarginPositionRequestBase::All,
+    }).await.unwrap();
+    assert_eq!(res.s_total_daikin, 14300000);
 }
