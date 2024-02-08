@@ -1,5 +1,6 @@
 use std::{ops::{Add, Sub, Mul, AddAssign, SubAssign, Div}, fmt::{Display, Debug}, str::FromStr};
 
+use labo::export::serde_json;
 use serde::Serialize;
 
 #[derive(Clone, Copy, Eq, Hash)]

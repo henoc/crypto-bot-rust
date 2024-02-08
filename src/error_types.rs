@@ -1,5 +1,5 @@
 use hyper::StatusCode;
-use thiserror::Error;
+use labo::export::thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum BotError {

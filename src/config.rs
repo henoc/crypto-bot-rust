@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
-use chrono::Duration;
+use labo::export::anyhow::Result;
+use labo::export::chrono::Duration;
 use serde::{Deserialize, Deserializer};
 
-use crate::{symbol::{Symbol}, utils::tracingmm_utils::PriceInOut};
+use crate::symbol::{Symbol, Currency};
 
 pub type Config = HashMap<String, Strategy>;
 
@@ -12,8 +12,6 @@ pub type Config = HashMap<String, Strategy>;
 #[serde(rename_all = "snake_case", tag = "strategy")]
 pub enum Strategy {
     Shannon(ShannonConfig),
-    TracingMm(TracingMMConfig),
-    Crawler(CrawlerConfig),
     Abcdf(AbcdfConfig),
 }
 
@@ -33,18 +31,6 @@ pub fn load_config() -> Result<Config> {
     let config = std::fs::read_to_string("config.bot.yaml").unwrap();
     let config: Config = serde_yaml::from_str(&config).unwrap();
     Ok(config)
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CrawlerConfig {
-    pub symbols: Vec<Symbol>,
-    pub kline_builder: Vec<KLineBuilderConfig>
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct KLineBuilderConfig {
-    pub timeframe: Timeframe,
-    pub len: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -74,28 +60,8 @@ impl Into<Duration> for Timeframe {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TracingMMConfig {
-    pub symbol: Symbol,
-    pub timeframe: Timeframe,
-    pub leverage: f64,
-
-    #[serde(default = "max_side_positions_default")]
-    pub max_side_positions: i64,
-
-    pub ref_symbol: Symbol,
-    pub atr_period: i64,
-    pub beta: PriceInOut,
-    pub gamma: PriceInOut,
-    pub losscut_rate: Option<f64>,
-    /// timeframeで何フレームか
-    pub exit_mean_frame: i32,
-}
-
-fn max_side_positions_default() -> i64 {
-    3
-}
-
-#[derive(Debug, Deserialize)]
 pub struct AbcdfConfig {
-    
+    pub symbol: Symbol,
+    pub ref_symbols: Vec<Currency>,
+    pub model_path: String,
 }

@@ -1,3 +1,4 @@
+use labo::export::anyhow::{Context, self};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 
@@ -32,9 +33,11 @@ pub struct TachibanaCredentials {
 }
 
 pub static CREDENTIALS: Lazy<Credentials> = Lazy::new(|| {
-    let config = std::fs::read_to_string("config.yaml").unwrap();
-    let config: Credentials = serde_yaml::from_str(&config).unwrap();
-    config
+    (|| {
+        let config = std::fs::read_to_string("config.yaml")?;
+        let config = serde_yaml::from_str::<Credentials>(&config).context("failed to parse config.yaml")?;
+        anyhow::Result::<Credentials>::Ok(config)
+    })().unwrap()
 });
 
 #[test]

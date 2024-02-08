@@ -1,23 +1,24 @@
-use std::{collections::HashMap, env, str::FromStr};
+use std::{collections::HashMap, env};
 
-use anyhow::{Context, anyhow};
 use clap::Parser;
-use bot::{config::{Strategy, self}, logger, global_vars::{DEBUG, DebugFlag, get_debug}};
+use bot::{config::{Strategy, self}, logger, global_vars::{DEBUG, debug_is_none}};
+use labo::export::anyhow::{Context, self};
 use log::LevelFilter;
 use once_cell::sync::Lazy;
-use bot::symbol::Exchange;
 
 #[derive(Parser)]
 struct Args {
     #[clap(short, long)]
     name: String,
-    #[clap(short, long, default_value = "none")]
-    debug: String,
+    #[clap(short, long)]
+    debug: Option<String>,
+    #[clap(short, long)]
+    quiet: bool,
 }
 
 static LOGGER: logger::BotLogger = logger::BotLogger;
 static CONFIG: Lazy<HashMap<String,Strategy>> = Lazy::new(|| {
-    config::load_config().unwrap()
+    config::load_config().context("failed to load config").unwrap()
 });
 
 #[tokio::main]
@@ -25,50 +26,17 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     env::set_var("NAME", &args.name);
-    DEBUG.set(DebugFlag::from_str(&args.debug).unwrap()).unwrap();
+    DEBUG.set(args.debug).unwrap();
 
-    if get_debug()==DebugFlag::None {
+    if !args.quiet {
         log::set_logger(&LOGGER)
             .map(|()| log::set_max_level(LevelFilter::Info))?;
     }
 
-    let strategy = CONFIG.get(&args.name).context(anyhow!("{} is not found in config", args.name))?;
+    let strategy = CONFIG.get(&args.name).with_context(|| format!("{} is not found in config", args.name))?;
     match strategy {
         Strategy::Shannon(strategy_config) => {
             bot::strategy::shannon_gmo::start_shannon_gmo(strategy_config).await;
-        },
-        Strategy::TracingMm(strategy_config) => {
-            match strategy_config.symbol.exc {
-                Exchange::Bitflyer => {
-                    bot::strategy::tracingmm_bitflyer::start_tracingmm_bitflyer(strategy_config).await;
-                },
-                Exchange::Coincheck => {
-                    bot::strategy::tracingmm_coincheck::start_tracingmm_coincheck(strategy_config).await;
-                },
-                _ => {
-                    anyhow::bail!("{} is not supported", strategy_config.symbol.exc);
-                }
-            }
-        },
-        Strategy::Crawler(strategy_config) => {
-            #[allow(unreachable_patterns)]
-            match strategy_config.symbols[0].exc {
-                Exchange::Coincheck => {
-                    bot::strategy::crawler_coincheck::start_crawler_coincheck(strategy_config).await;
-                },
-                Exchange::Bitflyer => {
-                    bot::strategy::crawler_bitflyer::start_crawler_bitflyer(strategy_config).await;
-                },
-                Exchange::Binance => {
-                    bot::strategy::crawler_binance::start_crawler_binance(strategy_config).await;
-                },
-                Exchange::Gmo => {
-                    bot::strategy::crawler_gmo::start_crawler_gmo(strategy_config).await;
-                }
-                _ => {
-                    anyhow::bail!("{} is not supported", strategy_config.symbols[0].exc);
-                }
-            }
         },
         Strategy::Abcdf(strategy_config) => {
             bot::strategy::abcdf_tachibana::start_abcdf(strategy_config).await;

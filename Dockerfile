@@ -5,8 +5,8 @@ FROM amazonlinux:2023
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH \
-    RUST_VERSION=1.69.0 \
-    RUSTUP_VERSION=1.25.2 \
+    RUST_VERSION=1.75.0 \
+    RUSTUP_VERSION=1.26.0 \
     RUST_ARCH=x86_64-unknown-linux-gnu
 
 RUN yum install -y wget gcc openssl-devel; \

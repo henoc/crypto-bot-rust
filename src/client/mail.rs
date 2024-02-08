@@ -1,9 +1,9 @@
-use anyhow::Result;
+use labo::export::anyhow::Result;
 use lettre::{SmtpTransport, transport::smtp::authentication::Credentials, Transport, Message};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 
-use super::credentials::{CREDENTIALS};
+use super::credentials::CREDENTIALS;
 
 
 pub static MAILER: Lazy<Mutex<SmtpTransport>> = Lazy::new(|| {

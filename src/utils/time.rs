@@ -1,4 +1,5 @@
-use chrono::{DateTime, Utc, TimeZone, NaiveDateTime, FixedOffset, Duration};
+use labo::export::anyhow;
+use labo::export::chrono::{DateTime, Utc, TimeZone, NaiveDateTime, FixedOffset, Duration, self};
 use serde::{Deserializer, Deserialize};
 
 pub struct ScheduleExpr {
@@ -16,6 +17,16 @@ impl ScheduleExpr {
             panic!("ahead must be less than interval");
         }
         ScheduleExpr {q: interval, r: interval - ahead}
+    }
+
+    pub fn daily(hour: u32, minute: u32, offset: FixedOffset) -> ScheduleExpr {
+        let offset = Duration::seconds(offset.local_minus_utc() as i64);
+        let rem = Duration::hours(hour as i64) + Duration::minutes(minute as i64) - offset;
+        if rem.num_seconds() < 0 {
+            Self::new(Duration::hours(24), Duration::hours(24) + rem)
+        } else {
+            Self::new(Duration::hours(24), rem)
+        }
     }
 }
 
@@ -155,6 +166,16 @@ fn test_next_sleep_duration_ms() {
     assert_eq!(next_sleep_duration_ms(curr.timestamp_millis(), ScheduleExpr::new(
         Duration::minutes(5), Duration::minutes(1)
     )), (1*60-10)*1000);
+}
+
+#[test]
+fn test_schedule_expr() {
+    let sc = ScheduleExpr::daily(9, 30, JST());
+    assert_eq!(sc.q, Duration::hours(24));
+    assert_eq!(sc.r, Duration::minutes(30));
+    let sc = ScheduleExpr::daily(8, 30, JST());
+    assert_eq!(sc.q, Duration::hours(24));
+    assert_eq!(sc.r, Duration::hours(23) + Duration::minutes(30));
 }
 
 #[test]

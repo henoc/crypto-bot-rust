@@ -1,48 +1,49 @@
-use std::{collections::HashMap, hash::{Hash, BuildHasher}, str::FromStr};
+use std::{collections::HashMap, hash::{Hash, BuildHasher}, str::FromStr, sync::OnceLock};
 
 use easy_ext::ext;
 use hyper::{HeaderMap, http::HeaderName};
-use once_cell::sync::OnceCell;
+use labo::export::anyhow::{self, Context};
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 
 #[ext(StaticVarExt)]
-pub impl<T> OnceCell<RwLock<T>> {
+pub impl<T> OnceLock<RwLock<T>> {
     /// get().unwrap().read()
     #[inline]
-    fn read(&self) -> RwLockReadGuard<'_, T> {
-        self.get().unwrap().read()
+    fn read(&self) -> anyhow::Result<RwLockReadGuard<'_, T>> {
+        Ok(self.get().context("Fail to read OnceLock")?.read())
     }
 
     /// get().unwrap().write()
     #[inline]
-    fn write(&self) -> RwLockWriteGuard<'_, T> {
-        self.get().unwrap().write()
+    fn write(&self) -> anyhow::Result<RwLockWriteGuard<'_, T>> {
+        Ok(self.get().context("Fail to write OnceLock")?.write())
     }
 }
 
 #[ext(StaticVarVecExt)]
-pub impl<T> OnceCell<RwLock<Vec<T>>> {
+pub impl<T> OnceLock<RwLock<Vec<T>>> {
     /// get().unwrap().write().drain(..).collect()
     #[inline]
-    fn drain(&self) -> Vec<T> {
-        self.write().drain(..).collect()
+    fn drain(&self) -> anyhow::Result<Vec<T>> {
+        Ok(self.write()?.drain(..).collect())
     }
 }
 
 #[ext(StaticVarHashVecExt)]
-pub impl<K: Eq + Hash, S: BuildHasher, T> OnceCell<RwLock<HashMap<K, RwLock<Vec<T>>, S>>> {
+pub impl<K: Eq + Hash, S: BuildHasher, T> OnceLock<RwLock<HashMap<K, RwLock<Vec<T>>, S>>> {
 
     /// get().unwrap().read()[&key].write().push(item);
     #[inline]
-    fn push(&self, key: K, item: T) {
-        self.read()[&key].write().push(item);
+    fn push(&self, key: K, item: T) -> anyhow::Result<()> {
+        self.read()?[&key].write().push(item);
+        Ok(())
     }
 
     /// get().unwrap().read()[&key].write().drain(..).collect()
     #[inline]
-    fn drain(&self, key: K) -> Vec<T> {
-        self.read()[&key].write().drain(..).collect()
+    fn drain(&self, key: K) -> anyhow::Result<Vec<T>> {
+        Ok(self.read()?[&key].write().drain(..).collect())
     }
 }
 

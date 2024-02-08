@@ -1,8 +1,7 @@
 use std::fmt::Display;
 
-use easy_ext::ext;
+use labo::export::{serde_json, strum::EnumString};
 use serde::{Deserialize, Serialize};
-use strum::EnumString;
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Hash, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
@@ -11,6 +10,7 @@ pub enum Exchange {
     Binance,
     Gmo,
     Coincheck,
+    Tachibana,
 }
 
 impl Exchange {
@@ -51,6 +51,12 @@ pub enum Currency {
     XRP,
     JPY,
     USDT,
+    /// トヨタ
+    #[serde(rename = "7203")]
+    T7203,
+    /// ソニー
+    #[serde(rename = "6758")]
+    T6758,
     /// NTT
     #[serde(rename = "9432")]
     T9432,
@@ -102,7 +108,8 @@ impl Symbol {
                 SymbolType::Perp => format!("FX_{}_{}", self.base, self.quote),
                 SymbolType::Spot => format!("{}_{}", self.base, self.quote),
                 _ => panic!("not implemented"),
-            }
+            },
+            Exchange::Tachibana => format!("{}", self.base),
         }
     }
 

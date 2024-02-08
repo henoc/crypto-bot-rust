@@ -9,123 +9,16 @@ shannon_gmo:
   virtual_amount:
     base: 0.1143      # 0.0381*3
     quote: 425124     # 141708*3
-tracing_mm_bitflyer:
-  strategy: tracing_mm
-  symbol:
-    base: BTC
-    quote: JPY
-    settlement: JPY
-    type: perp
-    exc: bitflyer
-  timeframe: 150s
-  leverage: 2
-  ref_symbol:
-    base: BTC
-    quote: USDT
-    settlement: USDT
-    type: spot
-    exc: binance
-  atr_period: 26
-  beta:
-    in: 1.499918816270843
-    out: 1.499918816270843
-  gamma:
-    in: 1.6352887880856914
-    out: 1.6352887880856914
-  losscut_rate: 0.07669143101596552
-  exit_mean_frame: 45
-crawler_gmo:
-  strategy: crawler
-  symbols:
-    - base: BTC
-      quote: JPY
-      settlement: JPY
-      type: perp
-      exc: gmo
-    - base: BTC
-      quote: JPY
-      settlement: JPY
-      type: spot
-      exc: gmo
-    - base: XRP
-      quote: JPY
-      settlement: JPY
-      type: perp
-      exc: gmo
-    - base: XRP
-      quote: JPY
-      settlement: JPY
-      type: spot
-      exc: gmo
-  kline_builder: []
-crawler_coincheck:
-  strategy: crawler
-  symbols:
-    - base: BTC
-      quote: JPY
-      settlement: JPY
-      type: spot
-      exc: coincheck
-  kline_builder:
-    - timeframe: 150s
-      len: 300
-crawler_bitflyer:
-  strategy: crawler
-  symbols:
-    - base: BTC
-      quote: JPY
-      settlement: JPY
-      type: perp
-      exc: bitflyer
-  kline_builder:
-    - timeframe: 150s
-      len: 300
-crawler_bitflyer_spot:
-  strategy: crawler
-  symbols:
-    - base: BTC
-      quote: JPY
-      settlement: JPY
-      type: spot
-      exc: bitflyer
-  kline_builder:
-    - timeframe: 150s
-      len: 300
-crawler_binance:
-  strategy: crawler
-  symbols:
-    - base: BTC
-      quote: USDT
-      settlement: USDT
-      type: spot
-      exc: binance
-  kline_builder:
-    - timeframe: 150s
-      len: 300
-tracing_mm_coincheck:
-  strategy: tracing_mm
-  symbol:
-    base: BTC
-    quote: JPY
-    settlement: JPY
-    type: spot
-    exc: coincheck
-  timeframe: 150s
-  leverage: 1
-  ref_symbol:
-    base: BTC
-    quote: USDT
-    settlement: USDT
-    type: spot
-    exc: binance
-  atr_period: 25
-  beta:
-    in: 1.3210060519197127
-    out: 1.2603246058406332
-  gamma:
-    in: 2.9191809249668133
-    out: 19.724329965732878
-  losscut_rate: 0.051905814206480536
-  exit_mean_frame: 83
 abcdf_tachibana:
   strategy: abcdf
+  symbol:
+    base: "9432"
+    quote: JPY
+    settlement: JPY
+    type: margin
+    exc: tachibana
+  ref_symbols:
+    - "7203"
+    - "6758"
+    - "9432"
+  model_path: /var/opt/model.lz4

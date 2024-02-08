@@ -1,17 +1,15 @@
-use once_cell::sync::OnceCell;
-use serde::Deserialize;
-use strum::EnumString;
+use std::sync::OnceLock;
 
-pub static DEBUG: OnceCell<DebugFlag> = OnceCell::new();
+pub static DEBUG: OnceLock<Option<String>> = OnceLock::new();
 
-#[derive(Debug, Clone, Copy, EnumString, PartialEq, Eq)]
-#[strum(serialize_all = "snake_case")]
-pub enum DebugFlag {
-    None,
-    Kline,
-    Orderbook,
+pub fn debug_is_none() -> bool {
+    DEBUG.get().as_ref().unwrap().is_none()
 }
 
-pub fn get_debug() -> DebugFlag {
-    *DEBUG.get().unwrap()
+pub fn debug_is_some_any() -> bool {
+    DEBUG.get().as_ref().unwrap().is_some()
+}
+
+pub fn debug_is_some(s: &str) -> bool {
+    DEBUG.get().as_ref().unwrap().as_ref().map(|s| s.as_str()) == Some(s)
 }

@@ -1,6 +1,7 @@
 use anyhow::bail;
-use chrono::{DateTime, Utc};
+use labo::export::chrono::{DateTime, Utc};
 use hyper::{Method, HeaderMap, StatusCode};
+use labo::export::{anyhow, serde_json};
 use maplit::hashmap;
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -315,7 +316,7 @@ pub struct TickerResponse {
 
 #[test]
 fn test_ticker_result() {
-    use chrono::Datelike;
+    use labo::export::chrono::Datelike;
     let obj = serde_json::json!({
         "product_code": "BTC_JPY",
         "timestamp": "2019-04-11T05:14:12.3739915Z",

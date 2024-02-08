@@ -1,0 +1,3 @@
+[submodule "labo"]
+	path = labo
+	url = git@github.com:henoc/crypto-mixer-rust.git

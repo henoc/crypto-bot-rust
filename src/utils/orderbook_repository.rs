@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Utc, Duration};
+use labo::export::chrono::{DateTime, Utc, Duration};
 use ordered_float::OrderedFloat;
 use serde::Serialize;
 

@@ -1,7 +1,8 @@
-use std::sync::atomic::AtomicU32;
+use std::sync::OnceLock;
+use std::{sync::atomic::AtomicU32, collections::HashMap};
 
-use chrono::{DateTime, Utc, FixedOffset, NaiveDate, Timelike};
-use once_cell::sync::OnceCell;
+use labo::export::chrono::{DateTime, Utc, FixedOffset, NaiveDate, Timelike};
+use labo::export::{anyhow, serde_json};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize, de::DeserializeOwned, Deserializer};
 use serde_json::{json, Value, Map};
@@ -9,21 +10,21 @@ use url::Url;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use encoding_rs::SHIFT_JIS;
 
-use crate::{utils::{time::JST, serde::{deserialize_f64_from_str, serialize_u32_to_str, deserialize_u64_from_str}, useful_traits::StaticVarExt, json_utils::object_update}, symbol::{Currency, Symbol}};
+use crate::{utils::{time::JST, serde::{deserialize_f64_from_str, serialize_u32_to_str, deserialize_u64_from_str, deserialize_f64_opt_from_str}, useful_traits::StaticVarExt, json_utils::object_update}, symbol::{Currency, Symbol}};
 
 use super::credentials::TachibanaCredentials;
 
-static SESSION_ID: OnceCell<RwLock<String>> = OnceCell::new();
+static SESSION_ID: OnceLock<RwLock<String>> = OnceLock::new();
 static PREV_NONCE: AtomicU32 = AtomicU32::new(1);
 
-#[cfg(test)]
-const ENDPOINT: &str = "https://demo-kabuka.e-shiten.jp/e_api_v4r5/";
-#[cfg(not(test))]
+const DEMO_ENDPOINT: &str = "https://demo-kabuka.e-shiten.jp/e_api_v4r5/";
+
 const ENDPOINT: &str = "https://kabuka.e-shiten.jp/e_api_v4r5/";
 
 pub struct TachibanaClient {
     client: reqwest::Client,
     api_credentials: TachibanaCredentials,
+    demo: bool,
 }
 
 impl TachibanaClient {
@@ -31,6 +32,23 @@ impl TachibanaClient {
         TachibanaClient {
             client: reqwest::Client::new(),
             api_credentials,
+            demo: false,
+        }
+    }
+
+    pub fn new_demo(api_credentials: TachibanaCredentials) -> TachibanaClient {
+        TachibanaClient {
+            client: reqwest::Client::new(),
+            api_credentials,
+            demo: true,
+        }
+    }
+
+    const fn endpoint(&self) -> &'static str {
+        if self.demo {
+            DEMO_ENDPOINT
+        } else {
+            ENDPOINT
         }
     }
 
@@ -39,7 +57,7 @@ impl TachibanaClient {
             s_user_id: self.api_credentials.user_id.clone(),
             s_password: self.api_credentials.password1.clone()
         }.to_json();
-        let mut url = Url::parse(ENDPOINT)?.join( LoginRequest::PATH)?;
+        let mut url = Url::parse(self.endpoint())?.join( LoginRequest::PATH)?;
         let query = utf8_percent_encode(params.to_string().as_str(), NON_ALPHANUMERIC).to_string();
         url.set_query(Some(&query));
         let res = self.client.get(url).send().await?;
@@ -59,7 +77,7 @@ impl TachibanaClient {
         query.set_password2(self.api_credentials.password2.clone());
         query.validation()?;
         let params = query.to_json();
-        let mut url = Url::parse(ENDPOINT)?.join( S::PATH)?.join(format!("{}/", SESSION_ID.read()).as_str())?;
+        let mut url = Url::parse(self.endpoint())?.join( S::PATH)?.join(format!("{}/", SESSION_ID.read()?).as_str())?;
         let query = utf8_percent_encode(params.to_string().as_str(), NON_ALPHANUMERIC).to_string();
         url.set_query(Some(&query));
         let res = self.client.get(url).send().await?;
@@ -348,14 +366,100 @@ impl TachibanaRequest for PriceHistoryRequest {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DBRecordRequest {
-
+pub struct PriceRequest {
+    #[serde(serialize_with = "serialize_vec_to_str")]
+    pub s_target_issue_code: Vec<Currency>,
+    #[serde(serialize_with = "serialize_vec_to_str")]
+    pub s_target_column: Vec<PriceType>,
 }
 
-impl TachibanaRequest for DBRecordRequest {
+/**
+ * 日曜日:
+    {
+      "": "",
+      "pDPP": "187.1",
+      "pED": "",
+      "pPRP": "188.3",
+      "sIssueCode": "9432",
+      "tDPP:T": "15:00"
+    }
+ 月曜日:
+  {
+      "": "",
+      "pDPP": "190.1",
+      "pED": "",
+      "pPRP": "187.1",
+      "sIssueCode": "9432",
+      "tDPP:T": "11:29"
+    },
+ */
+
+#[derive(Debug, Serialize)]
+pub enum PriceType {
+    /// 前日終値。営業日の営業時間後でも前日の終値。
+    #[serde(rename = "pPRP")]
+    PreviousClose,
+    #[serde(rename = "pDPP")]
+    LastPrice,
+    #[serde(rename = "tDPP:T")]
+    LastPriceTime,
+}
+
+impl TachibanaRequest for PriceRequest {
+    const PATH: &'static str = "price/";
+    const CLMID: &'static str = "CLMMfdsGetMarketPrice";
+    type Response = PriceResponse;
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemDataRequest {
+    #[serde(rename = "sTargetCLMID", serialize_with = "serialize_vec_to_str")]
+    pub s_target_clmid: Vec<SystemDataCommand>,
+    pub s_target_column: String,
+}
+
+impl SystemDataRequest {
+    pub fn new(commands: Vec<SystemDataCommand>) -> Self {
+        let mut props = Vec::new();
+        for command in &commands {
+            match command {
+                SystemDataCommand::BusinessDate => {
+                    props.extend_from_slice(&["sDayKey","sTheDay","sMaeEigyouDay_3","sYokuEigyouDay_1","sKabuUkewatasiDay","sKabuKariUkewatasiDay"]);
+                },
+            }
+        }
+        Self {
+            s_target_clmid: commands,
+            s_target_column: props.join(","),
+        }
+    
+    }
+}
+
+fn serialize_vec_to_str<S, T>(x: &Vec<T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+        T: Serialize,
+    {
+        let mut s = String::new();
+        for c in x {
+            s.push_str(&serde_json::to_string(c).unwrap().replace("\"", ""));
+            s.push(',');
+        }
+        serializer.serialize_str(&s)
+    }
+
+impl TachibanaRequest for SystemDataRequest {
     const PATH: &'static str = "master/";
     const CLMID: &'static str = "CLMMfdsGetMasterData";
-    type Response = Value;
+    type Response = SystemDataResponse;
+}
+
+#[derive(Debug, Serialize)]
+pub enum SystemDataCommand {
+    #[serde(rename = "CLMDateZyouhou")]
+    BusinessDate,
 }
 
 #[derive(Debug)]
@@ -535,7 +639,7 @@ fn deserialize_date_from_str<'de, D>(deserializer: D) -> Result<NaiveDate, D::Er
         Ok(d)
     }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Hash, PartialEq, Eq, Clone)]
 #[serde(untagged)]
 pub enum CodeResponse {
     Defined(Currency),
@@ -560,7 +664,8 @@ pub enum MarginPositionType {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PriceHistoryResponse {
-    pub a_clm_mfds_get_market_price_history: Vec<PriceHistoryItem>,
+    #[serde(rename = "aCLMMfdsMarketPriceHistory")]
+    pub a_clm_mfds_market_price_history: Vec<PriceHistoryItem>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -589,6 +694,97 @@ pub struct PriceHistoryItem {
     pub volume_adj: f64,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PriceResponse {
+    #[serde(rename = "aCLMMfdsMarketPrice", deserialize_with = "deserialize_from_vec_to_hashmap")]
+    pub a_clm_mfds_market_price: HashMap<CodeResponse, PriceItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PriceItem {
+    #[serde(rename = "sIssueCode")]
+    pub s_issue_code: CodeResponse,
+    #[serde(rename = "pPRP", deserialize_with = "deserialize_f64_opt_from_str", default)]
+    pub previous_close: Option<f64>,
+    #[serde(rename = "pDPP", deserialize_with = "deserialize_f64_opt_from_str", default)]
+    pub last_price: Option<f64>,
+    #[serde(rename = "tDPP:T", default)]
+    pub last_price_time: Option<String>,
+}
+
+impl VecToMapDeserializable for PriceItem {
+    type K = CodeResponse;
+    fn key(&self) -> Self::K {
+        self.s_issue_code.clone()
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SystemDataResponse {
+    #[serde(rename = "CLMDateZyouhou", deserialize_with = "deserialize_from_vec_to_hashmap_opt", default)]
+    pub clm_date_zyouhou: Option<HashMap<DayFlag, BusinessDateResponseItem>>
+}
+
+trait VecToMapDeserializable {
+    type K: std::hash::Hash + Eq;
+    fn key(&self) -> Self::K;
+}
+
+fn deserialize_from_vec_to_hashmap<'de, D, T>(deserializer: D) -> Result<HashMap<T::K, T>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + VecToMapDeserializable,
+    {
+        let v = Vec::<T>::deserialize(deserializer)?;
+        let mut m = HashMap::new();
+        for item in v {
+            m.insert(item.key(), item);
+        }
+        Ok(m)
+    }
+
+fn deserialize_from_vec_to_hashmap_opt<'de, D, T>(deserializer: D) -> Result<Option<HashMap<T::K, T>>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + VecToMapDeserializable,
+    {
+        let ret = deserialize_from_vec_to_hashmap(deserializer)?;
+        Ok(Some(ret))
+    }
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BusinessDateResponseItem {
+    pub s_day_key: DayFlag,
+    /// 休日は最初の営業日になる気がする
+    #[serde(deserialize_with = "deserialize_date_from_str")]
+    pub s_the_day: NaiveDate,
+    /// 一日前
+    #[serde(rename = "sMaeEigyouDay_3", deserialize_with = "deserialize_date_from_str")]
+    pub s_mae_eigyou_day_3: NaiveDate,
+    #[serde(rename = "sYokuEigyouDay_1", deserialize_with = "deserialize_date_from_str")]
+    pub s_yoku_eigyou_day_1: NaiveDate,
+    #[serde(deserialize_with = "deserialize_date_from_str")]
+    pub s_kabu_ukewatasi_day: NaiveDate,
+    #[serde(deserialize_with = "deserialize_date_from_str")]
+    pub s_kabu_kari_ukewatasi_day: NaiveDate,
+}
+
+impl VecToMapDeserializable for BusinessDateResponseItem {
+    type K = DayFlag;
+    fn key(&self) -> Self::K {
+        self.s_day_key.clone()
+    }
+}
+
+#[derive(Debug, Deserialize, Hash, PartialEq, Eq, Clone)]
+pub enum DayFlag {
+    #[serde(rename = "001")]
+    Today,
+    #[serde(rename = "002")]
+    Tomorrow,
+}
+
 #[tokio::test]
 async fn test_tachibana_client() {
     let client = TachibanaClient::new(crate::client::credentials::CREDENTIALS.tachibana.clone());
@@ -599,7 +795,7 @@ async fn test_tachibana_client() {
 
 #[tokio::test]
 async fn test_tachibana_order() {
-    let client = TachibanaClient::new(crate::client::credentials::CREDENTIALS.tachibana.clone());
+    let client = TachibanaClient::new_demo(crate::client::credentials::CREDENTIALS.tachibana.clone());
     client.login().await.unwrap();
     let res = client.send(OrderRequest::new(
         Currency::T9432,
@@ -614,10 +810,41 @@ async fn test_tachibana_order() {
 
 #[tokio::test]
 async fn test_tachibana_margin_position() {
-    let client = TachibanaClient::new(crate::client::credentials::CREDENTIALS.tachibana.clone());
+    let client = TachibanaClient::new_demo(crate::client::credentials::CREDENTIALS.tachibana.clone());
     client.login().await.unwrap();
     let res = client.send(MarginPositionRequest {
         s_issue_code: MarginPositionRequestBase::All,
     }).await.unwrap();
     assert_eq!(res.s_total_daikin, 14300000);
+}
+
+#[tokio::test]
+async fn test_tachibana_system_data() {
+    let client = TachibanaClient::new(crate::client::credentials::CREDENTIALS.tachibana.clone());
+    client.login().await.unwrap();
+    let res = client.send(SystemDataRequest::new(vec![SystemDataCommand::BusinessDate])).await.unwrap();
+    println!("{:?}", res);
+    assert!(res.clm_date_zyouhou.is_some());
+}
+
+#[tokio::test]
+async fn test_tachibana_get_price() {
+    let client = TachibanaClient::new(crate::client::credentials::CREDENTIALS.tachibana.clone());
+    client.login().await.unwrap();
+    let res = client.send(PriceRequest {
+        s_target_issue_code: vec![Currency::T9432],
+        s_target_column: vec![PriceType::PreviousClose, PriceType::LastPrice, PriceType::LastPriceTime],
+    }).await.unwrap();
+    println!("{:?}", res);
+}
+
+#[tokio::test]
+async fn test_tachibana_get_price_history() {
+    let client = TachibanaClient::new(crate::client::credentials::CREDENTIALS.tachibana.clone());
+    client.login().await.unwrap();
+    let res = client.send(PriceHistoryRequest {
+        s_issue_code: Currency::T9432,
+        s_sizyou_c: StockMarket::Tsc,
+    }).await.unwrap();
+    assert!(res.a_clm_mfds_market_price_history.len() > 0);
 }

@@ -1,7 +1,8 @@
-use chrono::{DateTime, Utc, Duration};
-use polars::{prelude::{DataFrame, NamedFrom, ChunkedArray, TimeUnit, IntoLazy, TakeRandom}, series::{Series, IntoSeries}, time::{PolarsUpsample}, lazy::dsl::{col, lit}};
+use labo::export::anyhow;
+use labo::export::chrono::{DateTime, Utc, Duration};
+use labo::export::{polars::{prelude::{DataFrame, NamedFrom, ChunkedArray, TimeUnit, IntoLazy}, series::{Series, IntoSeries}, time::{PolarsUpsample}, lazy::dsl::{col, lit}}};
 use serde::{Serialize, Serializer};
-use serde_json::{Value, json};
+use labo::export::serde_json::{Value, json};
 
 use crate::{utils::{dataframe::chrono_dt_to_series_ms, time::{UnixTimeUnit, datetime_utc_from_timestamp, UnixTimeMs, format_time_naive}}, symbol::Symbol, order_types::Side};
 
@@ -74,7 +75,7 @@ impl KLines {
     }
 
     pub fn sorted(self) -> anyhow::Result<KLines> {
-        let df = self.df.sort(vec!["opentime"], false)?;
+        let df = self.df.sort(vec!["opentime"], false, false)?;
         Ok(KLines { df })
     }
 
@@ -88,8 +89,8 @@ impl KLines {
             .outer_join(last_df.lazy(), col("opentime"), col("opentime"))
             .filter(col("opentime").lt(lit(until.naive_utc())))
             .collect()?;
-        let duration = polars::prelude::Duration::parse(format!("{}s", timeframe.num_seconds()).as_str());
-        df = df.upsample_stable::<Vec<&str>>(vec![], "opentime", duration, polars::prelude::Duration::new(0))?;
+        let duration = labo::export::polars::prelude::Duration::parse(format!("{}s", timeframe.num_seconds()).as_str());
+        df = df.upsample_stable::<Vec<&str>>(vec![], "opentime", duration, labo::export::polars::prelude::Duration::new(0))?;
         df = df.lazy().with_columns(vec![
             col("close").forward_fill(None),
             col("volume").fill_null(lit(0.)),

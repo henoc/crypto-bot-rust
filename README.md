@@ -43,3 +43,12 @@ sudo ./bot --name crawler_bitflyer --debug
 
 - static変数ではArcは不要
     - Arcは（スレッド共有用）参照カウンタなので
+- OptionはcontextでResultに変換、なるべくtryで回すことで正しいbacktraceを得る
+
+### git submodule
+
+外側のリポジトリのブランチを変えてもsubmodule内のファイルは手動で参照先の内容に変わらないので手動で変える:
+- git submodule update
+
+- git submodule status
+  - 参照先のcommitを表示
