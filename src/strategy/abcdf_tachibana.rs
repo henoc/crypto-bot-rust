@@ -1,71 +1,82 @@
-use std::{time::Duration as StdDuration, fs::File, vec, iter::once};
+use std::{time::Duration as StdDuration, fs::File, vec, iter::once, sync::OnceLock};
 
 use log::info;
-use labo::{export::{polars::{frame::{DataFrame, UniqueKeepStrategy}, series::Series, prelude::{NamedFrom, DataFrameJoinOps}, lazy::{frame::IntoLazy, dsl::{col, lit, UnionArgs}, prelude::concat}, datatypes::{DataType, TimeUnit}, io::{parquet::{ParquetWriter, ParquetReader}, SerReader}}, anyhow::{self, Context}}, abcdf::workflow::predict_process};
+use anyhow::{self, Context};
+use labo::{export::{polars::{frame::{DataFrame, UniqueKeepStrategy}, series::Series, prelude::{NamedFrom, DataFrameJoinOps}, lazy::{frame::IntoLazy, dsl::{col, lit, UnionArgs}, prelude::concat}, datatypes::{DataType, TimeUnit}, io::{parquet::{ParquetWriter, ParquetReader}, SerReader}}}, abcdf::workflow::predict_process};
+use parking_lot::RwLock;
 use tokio::{select, spawn, time::sleep};
 
-use crate::{config::AbcdfConfig, client::{tachibana::{TachibanaClient, PriceHistoryRequest, StockMarket, SystemDataRequest, SystemDataCommand, PriceRequest, PriceType, CodeResponse, BusinessDateResponseItem}, credentials::CREDENTIALS}, utils::{time::{sleep_until_next, ScheduleExpr, JST, today_jst}, strategy_utils::CaptureResult, dataframe::DataFrameExt}, symbol::{Symbol, Currency}, global_vars::{debug_is_some, debug_is_some_any}};
+use crate::{config::AbcdfConfig, client::{tachibana::{TachibanaClient, PriceHistoryRequest, StockMarket, SystemDataRequest, SystemDataCommand, PriceRequest, PriceType, CodeResponse, BusinessDateResponseItem, MarginPositionRequest, MarginBalanceRequest, OrderRequest, OrderSide, OrderTime, OrderPrice, TradingType}, credentials::CREDENTIALS}, utils::{time::{sleep_until_next, ScheduleExpr, JST, today_jst}, strategy_utils::CaptureResult, dataframe::DataFrameExt, useful_traits::StaticVarExt}, symbol::{Symbol, Currency}, global_vars::{debug_is_some, debug_is_some_any}, order_types::Side, data_structure::float_exp::FloatExp};
 
+static LAST_PRICE: OnceLock<RwLock<f64>> = OnceLock::new();
+static POS: OnceLock<RwLock<[Position; 2]>> = OnceLock::new();
 
-pub async fn start_abcdf(config: &'static AbcdfConfig) {
+const LEVERAGE: i64 = 3;
+
+struct Position {
+    amount: FloatExp,
+}
+
+/// cronで呼ばれる
+pub async fn action_abcdf(config: &'static AbcdfConfig, cmd: &str) -> anyhow::Result<()> {
+    let client = TachibanaClient::new(CREDENTIALS.tachibana.clone());
+    
     if debug_is_some("create_price_history") {
-        let client = TachibanaClient::new(CREDENTIALS.tachibana.clone());
-        client.login().await.unwrap();
-        create_price_history(&client, config).await.unwrap();
-        return;
+        client.login().await?;
+        create_price_history(&client, config).await?;
+        return Ok(());
     } else if debug_is_some("print_price_history") {
-        let df = ParquetReader::new(File::open(price_hisotry_file_path(config.symbol)).unwrap()).finish().unwrap();
+        let df = ParquetReader::new(File::open(price_hisotry_file_path(config.symbol))?).finish()?;
         info!("{}", df);
-        return;
+        return Ok(());
     } else if debug_is_some("modify_price_history") {
         let client = TachibanaClient::new(CREDENTIALS.tachibana.clone());
-        client.login().await.unwrap();
-        modify_price_history(&client, config).await.unwrap();
-        return;
+        client.login().await?;
+        modify_price_history(&client, config).await?;
+        return Ok(());
     } else if debug_is_some("predict_next") {
         let client = TachibanaClient::new(CREDENTIALS.tachibana.clone());
-        client.login().await.unwrap();
-        predict_next(&client, config).await.unwrap();
-        return;
+        client.login().await?;
+        let business_date = get_business_date(&client).await?;
+        if !is_business_day(&business_date) {
+            return Ok(());
+        }
+        predict_next(&client, config, &business_date).await?;
+        return Ok(());
     } else if debug_is_some_any() {
-        panic!("Unknown debug option");
+        anyhow::bail!("Unknown debug option");
     }
 
-    if !tokio::fs::try_exists(&config.model_path).await.unwrap() {
-        panic!("Model file not found: {}", &config.model_path);
+    if !tokio::fs::try_exists(&config.model_path).await? {
+        anyhow::bail!("Model file not found: {}", &config.model_path);
     }
 
-    let symbol = config.symbol.clone();
-    select! {
-        _ = spawn(async move {
-            let client = TachibanaClient::new(CREDENTIALS.tachibana.clone());
-            loop {
-                async {
-                    sleep_until_next(ScheduleExpr::daily(21, 3, JST())).await;
-                    client.login().await?;
-                    create_price_history(&client, config).await?;
-                    Ok(())
-                }.await.capture_result(symbol).await.unwrap();
+    match cmd {
+        "create_price_history" => {
+            client.login().await?;
+            create_price_history(&client, config).await?;
+        },
+        "update_order" => {
+            client.login().await?;
+            let business_date = get_business_date(&client).await?;
+            if !is_business_day(&business_date) {
+                return Ok(());
             }
-        }) => {},
-        _ = spawn(async move {
-            let client = TachibanaClient::new(CREDENTIALS.tachibana.clone());
-            loop {
-                async {
-                    sleep_until_next(ScheduleExpr::daily(14, 59, JST())).await;
-                    client.login().await?;
-                    predict_next(&client, config).await?;
-                    Ok(())
-                }.await.capture_result(symbol).await.unwrap();
-            }
-        }) => {},
-    }
+            update_position(&client, config).await?;
+            let pred = predict_next(&client, config, &business_date).await?;
+            send_new_orders(&client, config, if pred > 0. { Side::Buy } else { Side::Sell }).await?;
+        },
+        _ => {
+            anyhow::bail!("Unknown command: {}", cmd);
+        }
+    };
+    Ok(())
 }
 
 const SAVE_HISTORY_LEN: usize = 100;
 
 fn price_hisotry_file_path(symbol: Symbol) -> String {
-    format!("/var/opt/{}.parquet", symbol.to_file_form())
+    format!("{}.parquet", symbol.to_file_form())
 }
 
 fn is_business_day(business_date: &BusinessDateResponseItem) -> bool {
@@ -133,12 +144,7 @@ async fn modify_price_history(client: &TachibanaClient, config: &AbcdfConfig) ->
 }
 
 /// 営業時間中に呼ばれる。次営業日の終値を予測する
-async fn predict_next(client: &TachibanaClient, config: &AbcdfConfig) -> anyhow::Result<()> {
-    let business_date = get_business_date(client).await?;
-    if !is_business_day(&business_date) {
-        return Ok(());
-    }
-
+async fn predict_next(client: &TachibanaClient, config: &AbcdfConfig, business_date: &BusinessDateResponseItem) -> anyhow::Result<f64> {
     let df = read_price_history_and_add_last_price(client, config).await?;
     // log returnを計算
     let mut df = df.lazy().select(&[
@@ -158,15 +164,18 @@ async fn predict_next(client: &TachibanaClient, config: &AbcdfConfig) -> anyhow:
     let pred = predict_process(df, config.model_path.as_str())?
         .at::<f64>(&config.symbol.base.to_string(), col("opentime").eq(lit(predicable_next_day)))?;
     info!("Predicted next day's value: {}. Next day: {}", pred, business_date.s_yoku_eigyou_day_1);
-    Ok(())
+    Ok(pred)
 }
 
+/// 営業日に呼ばれる
 async fn read_price_history_and_add_last_price(client: &TachibanaClient, config: &AbcdfConfig) -> anyhow::Result<DataFrame> {
     let mut df = ParquetReader::new(File::open(price_hisotry_file_path(config.symbol))?).finish()?;
     let res = client.send(PriceRequest {
         s_target_issue_code: config.ref_symbols.clone(),
         s_target_column: vec![PriceType::LastPrice],
     }).await?;
+
+    *LAST_PRICE.write()? = res.a_clm_mfds_market_price.get(&CodeResponse::Defined(config.symbol.base)).with_context(|| format!("Not found {}", config.symbol.base))?.last_price.with_context(|| format!("Last price is None for {}", config.symbol.base))?;
     
     // 現在値を今日の終値としてdfに追加する
     let next_row = once(
@@ -178,4 +187,50 @@ async fn read_price_history_and_add_last_price(client: &TachibanaClient, config:
     ).collect::<anyhow::Result<DataFrame>>()?;
     df = concat(&[df.lazy(), next_row.lazy()], UnionArgs::default())?.unique_stable(Some(vec!["opentime".to_owned()]), UniqueKeepStrategy::Last).collect()?;
     Ok(df)
+}
+
+async fn update_position(client: &TachibanaClient, config: &AbcdfConfig) -> anyhow::Result<()> {
+    let res = client.send(MarginPositionRequest {
+        s_issue_code: crate::client::tachibana::MarginPositionRequestBase::Currency(config.symbol.base)
+    }).await?;
+    let mut poss = [Position { amount: FloatExp::new(0, config.symbol.amount_precision()) }, Position { amount: FloatExp::new(0, config.symbol.amount_precision()) }];
+    for pos in res.a_shinyou_tategyoku_list {
+        poss[pos.s_order_baibai_kubun as usize].amount += FloatExp::from_f64(pos.s_tategyoku_suryou as f64, config.symbol.amount_precision());
+    }
+    *POS.write()? = poss;
+    Ok(())
+}
+
+async fn send_new_orders(client: &TachibanaClient, config: &AbcdfConfig, pred_side: Side) -> anyhow::Result<()> {
+    let poss = POS.read()?;
+    if poss[pred_side.inv() as usize].amount.value > 0 {
+        let res = client.send(OrderRequest::new(
+            config.symbol.base,
+            pred_side.inv().into(),
+            OrderTime::Closing,
+            OrderPrice::Market,
+            poss[pred_side.inv() as usize].amount,
+            TradingType::CloseSystemMargin,
+        )).await?;
+        info!("Close order: {:?}", res);
+    }
+    if poss[pred_side as usize].amount.is_zero() {
+        let res = client.send(MarginBalanceRequest { 
+            s_hituke_index: 0
+        }).await?;
+        let all = res.s_azukari_kin * LEVERAGE;
+        let unit_margin = all as f64 * 0.45;
+        let amount = FloatExp::from_f64_floor(unit_margin / *LAST_PRICE.read()?, config.symbol.amount_precision());
+
+        let res = client.send(OrderRequest::new(
+            config.symbol.base,
+            pred_side.into(),
+            OrderTime::Closing,
+            OrderPrice::Market,
+            amount,
+            TradingType::OpenSystemMargin,
+        )).await?;
+        info!("Open order. all_margin: {}, order_amount: {}, res: {:?}", all, amount, res);
+    }
+    Ok(())
 }

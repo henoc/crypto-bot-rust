@@ -1,4 +1,4 @@
-use labo::export::anyhow::{Context, self};
+use anyhow::{Context, self};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 

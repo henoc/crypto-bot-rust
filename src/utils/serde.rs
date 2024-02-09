@@ -22,12 +22,12 @@ pub fn deserialize_f64_opt_from_str<'de, D>(deserializer: D) -> Result<Option<f6
         Ok(f)
     }
 
-pub fn deserialize_u64_from_str<'de, D>(deserializer: D) -> Result<u64, D::Error>
+pub fn deserialize_i64_from_str<'de, D>(deserializer: D) -> Result<i64, D::Error>
     where
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let f = u64::from_str(&s).map_err(serde::de::Error::custom)?;
+        let f = i64::from_str(&s).map_err(serde::de::Error::custom)?;
         Ok(f)
     }
 

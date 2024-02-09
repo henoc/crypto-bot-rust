@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 
-use labo::export::anyhow::Context;
-use labo::export::anyhow::Result;
+use anyhow::Context;
+use anyhow::Result;
 use labo::export::chrono::Duration;
 use labo::export::serde_json;
 use log::info;

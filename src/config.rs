@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use labo::export::anyhow::Result;
+use anyhow;
 use labo::export::chrono::Duration;
 use serde::{Deserialize, Deserializer};
 
@@ -27,7 +27,7 @@ pub struct VirtualAmount {
     pub quote: f64,
 }
 
-pub fn load_config() -> Result<Config> {
+pub fn load_config() -> anyhow::Result<Config> {
     let config = std::fs::read_to_string("config.bot.yaml").unwrap();
     let config: Config = serde_yaml::from_str(&config).unwrap();
     Ok(config)

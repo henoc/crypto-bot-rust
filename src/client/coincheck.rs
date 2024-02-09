@@ -1,7 +1,8 @@
 use std::{collections::HashMap, str::FromStr, sync::{atomic::AtomicI64, Arc}};
 use std::time::Duration as StdDuration;
 
-use labo::export::{chrono::{Duration, DateTime, Utc, self}, anyhow};
+use anyhow;
+use labo::export::{chrono::{Duration, DateTime, Utc, self}};
 use hyper::{HeaderMap, header::CONTENT_TYPE, http::HeaderName};
 use log::info;
 use maplit::hashmap;

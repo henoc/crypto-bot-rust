@@ -1,7 +1,8 @@
 use std::fs;
 
 use bot::{utils::time::today_jst, logger};
-use labo::export::{chrono::Duration, anyhow, serde_json};
+use labo::export::{chrono::Duration, serde_json};
+use anyhow;
 use duct::cmd;
 use log::{info, LevelFilter};
 

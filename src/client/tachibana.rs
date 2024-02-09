@@ -1,8 +1,9 @@
 use std::sync::OnceLock;
 use std::{sync::atomic::AtomicU32, collections::HashMap};
 
+use anyhow;
 use labo::export::chrono::{DateTime, Utc, FixedOffset, NaiveDate, Timelike};
-use labo::export::{anyhow, serde_json};
+use labo::export::serde_json;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize, de::DeserializeOwned, Deserializer};
 use serde_json::{json, Value, Map};
@@ -10,7 +11,9 @@ use url::Url;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use encoding_rs::SHIFT_JIS;
 
-use crate::{utils::{time::JST, serde::{deserialize_f64_from_str, serialize_u32_to_str, deserialize_u64_from_str, deserialize_f64_opt_from_str}, useful_traits::StaticVarExt, json_utils::object_update}, symbol::{Currency, Symbol}};
+use crate::data_structure::float_exp::FloatExp;
+use crate::order_types::Side;
+use crate::{utils::{time::JST, serde::{deserialize_f64_from_str, serialize_u32_to_str, deserialize_i64_from_str, deserialize_f64_opt_from_str}, useful_traits::StaticVarExt, json_utils::object_update}, symbol::{Currency, Symbol}};
 
 use super::credentials::TachibanaCredentials;
 
@@ -158,6 +161,15 @@ pub enum OrderSide {
     Sell,
 }
 
+impl From<Side> for OrderSide {
+    fn from(side: Side) -> Self {
+        match side {
+            Side::Buy => OrderSide::Buy,
+            Side::Sell => OrderSide::Sell,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub enum OrderTime {
     #[serde(rename = "0")]
@@ -259,7 +271,7 @@ pub struct OrderRequest {
     s_baibai_kubun: OrderSide,
     s_condition: OrderTime,
     s_order_price: OrderPrice,
-    s_order_suryou: u64,
+    s_order_suryou: FloatExp,
     s_genkin_shinyou_kubun: TradingType,
     s_order_expire_day: TimeInForce,
     s_gyakusasi_order_type: StopOrderType,
@@ -271,7 +283,7 @@ pub struct OrderRequest {
 }
 
 impl OrderRequest {
-    pub fn new(base: Currency, side: OrderSide, order_time: OrderTime, price: OrderPrice, amount: u64, trading_type: TradingType) -> Self {
+    pub fn new(base: Currency, side: OrderSide, order_time: OrderTime, price: OrderPrice, amount: FloatExp, trading_type: TradingType) -> Self {
         Self {
             s_zyoutoeki_kazei_c: TaxAccountType::Specific,
             s_issue_code: base,
@@ -308,7 +320,7 @@ impl TachibanaRequest for OrderRequest {
 #[serde(rename_all = "camelCase")]
 pub struct MarginBalanceRequest {
     #[serde(serialize_with = "serialize_u32_to_str")]
-    s_hituke_index: u32,
+    pub s_hituke_index: u32,
 }
 
 impl TachibanaRequest for MarginBalanceRequest {
@@ -562,40 +574,40 @@ pub struct OrderResponse {
 #[serde(rename_all = "camelCase")]
 pub struct MarginBalanceResponse {
     pub s_hituke: String,
-    #[serde(deserialize_with = "deserialize_f64_from_str")]
-    pub s_azukari_kin: f64,
-    #[serde(deserialize_with = "deserialize_f64_from_str")]
-    pub s_sinyou_sinkidate_kanougaku: f64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_azukari_kin: i64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_sinyou_sinkidate_kanougaku: i64,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarginPositionResponse {
     pub a_shinyou_tategyoku_list: Vec<MarginPositionItem>,
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_hyouka_soneki_goukei_kaidate: u64,
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_hyouka_soneki_goukei_uridate: u64,
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_tokutei_hyouka_soneki_goukei: u64,
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_kaitate_daikin: u64,
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_uritate_daikin: u64,
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_total_daikin: u64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_hyouka_soneki_goukei_kaidate: i64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_hyouka_soneki_goukei_uridate: i64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_tokutei_hyouka_soneki_goukei: i64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_kaitate_daikin: i64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_uritate_daikin: i64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_total_daikin: i64,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarginPositionItem {
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_order_tategyoku_number: u64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_order_tategyoku_number: i64,
     pub s_order_issue_code: CodeResponse,
     pub s_order_baibai_kubun: OrderSide,
     pub s_order_bensai_kubun: MarginPositionType,
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_order_tategyoku_suryou: u64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_order_tategyoku_suryou: i64,
     #[serde(deserialize_with = "deserialize_f64_from_str")]
     pub s_order_tategyoku_tanka: f64,
     #[serde(deserialize_with = "deserialize_f64_from_str")]
@@ -604,30 +616,30 @@ pub struct MarginPositionItem {
     pub s_order_gaisan_hyouka_soneki: f64,
     #[serde(deserialize_with = "deserialize_f64_from_str")]
     pub s_order_gaisan_hyouka_soneki_ritu: f64,
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_tategyoku_daikin: u64,
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_order_tate_tesuryou: u64,
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_order_gyakuhibu: u64,
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_order_zyun_hibu: u64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_tategyoku_daikin: i64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_order_tate_tesuryou: i64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_order_gyakuhibu: i64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_order_zyun_hibu: i64,
     #[serde(deserialize_with = "deserialize_date_from_str")]
     pub s_order_tategyoku_day: NaiveDate,
     #[serde(deserialize_with = "deserialize_date_from_str")]
     pub s_order_tategyoku_kizitu_day: NaiveDate,
     /// s_order_tategyoku_suryouとどう違うのか不明
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_tategyoku_suryou: u64,
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_order_yakuzyou_hensai_kabusu: u64,
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_order_genbiki_genwatasi_kabusu: u64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_tategyoku_suryou: i64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_order_yakuzyou_hensai_kabusu: i64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_order_genbiki_genwatasi_kabusu: i64,
     /// 注文中の数量
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_order_order_suryou: u64,
-    #[serde(deserialize_with = "deserialize_u64_from_str")]
-    pub s_order_hensai_kanou_suryou: u64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_order_order_suryou: i64,
+    #[serde(deserialize_with = "deserialize_i64_from_str")]
+    pub s_order_hensai_kanou_suryou: i64,
 }
 
 fn deserialize_date_from_str<'de, D>(deserializer: D) -> Result<NaiveDate, D::Error>
@@ -802,7 +814,7 @@ async fn test_tachibana_order() {
         OrderSide::Buy,
         OrderTime::None,
         OrderPrice::Market,
-        100,
+        FloatExp::from_f64(100., 2),
         TradingType::OpenSystemMargin,
     )).await.unwrap();
     assert_eq!(res.s_result_code, "0");

@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fs::File, path::Path, ops::Index};
 
-use labo::export::{anyhow, serde_json, chrono};
+use anyhow;
+use labo::export::{serde_json, chrono};
 use labo::export::chrono::Duration;
 use labo::export::serde_json::{Value, json};
 

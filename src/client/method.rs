@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use hyper::{header::CONTENT_TYPE, http::HeaderName, HeaderMap, StatusCode};
-use labo::export::{serde_json, anyhow};
+use anyhow;
+use labo::export::serde_json;
 use log::info;
 use reqwest::{self, Url, Response};
 use serde_json::Value;

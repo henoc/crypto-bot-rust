@@ -1,7 +1,8 @@
 use anyhow::bail;
 use labo::export::chrono::{DateTime, Utc};
 use hyper::{Method, HeaderMap, StatusCode};
-use labo::export::{anyhow, serde_json};
+use labo::export::serde_json;
+use anyhow;
 use maplit::hashmap;
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use serde_json::Value;

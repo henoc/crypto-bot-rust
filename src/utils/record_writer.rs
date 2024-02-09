@@ -2,7 +2,7 @@ use std::{fs::File, collections::HashSet, io::{Write, BufWriter}};
 
 use anyhow::Context;
 use labo::export::{chrono::{DateTime, Utc, NaiveDate}, serde_json, rmp_serde};
-use labo::export::anyhow;
+use anyhow;
 use serde::Serialize;
 use labo::export::serde_json::Value;
 

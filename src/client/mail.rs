@@ -1,4 +1,4 @@
-use labo::export::anyhow::Result;
+use anyhow::Result;
 use lettre::{SmtpTransport, transport::smtp::authentication::Credentials, Transport, Message};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;

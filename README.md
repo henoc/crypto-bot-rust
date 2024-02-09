@@ -17,8 +17,12 @@ sudo yum install cronie
 sudo systemctl start crond.service
 sudo crontab -e
 # 58 * * * * cd /home/ec2-user/; ./report >> /tmp/report.log 2>&1
-# 1 22 * * * cd /home/ec2-user/; ./transfer >> /tmp/transfer/log 2>&1
+# 1 22 * * * cd /home/ec2-user/; ./transfer >> /tmp/transfer.log 2>&1
 ```
+
+### EC2メモ
+
+- cronのログ確認: `journalctl -u crond`
 
 ## クロスコンパイル
 

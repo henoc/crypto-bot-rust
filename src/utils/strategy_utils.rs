@@ -1,6 +1,6 @@
 use std::{collections::HashMap, env, process::exit};
 
-use labo::export::anyhow::{anyhow, Context, self};
+use anyhow::{Context, self};
 use async_trait::async_trait;
 use labo::export::chrono::Duration;
 use futures::{stream::SplitSink, SinkExt, Sink, channel::mpsc::UnboundedReceiver, StreamExt};
@@ -67,7 +67,7 @@ pub async fn start_send_ping<E: Into<anyhow::Error> + Send, T: Sink<Message, Err
     spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-            sink.send(Message::Ping(vec![])).await.map_err(|e| anyhow!(e)).capture_result(symbol).await.unwrap();
+            sink.send(Message::Ping(vec![])).await.map_err(|e| anyhow::anyhow!(e)).capture_result(symbol).await.unwrap();
         }
     });
 }
@@ -78,7 +78,7 @@ pub fn connect_into_sink<E: Into<anyhow::Error> + Send, T: Sink<Message, Error =
         all.insert(i, rdr);
     }
     spawn(async move {
-        sink.send_all(&mut all.map(|(_, x)| Ok(x))).await.map_err(|e| anyhow!(e)).capture_result(symbol).await.unwrap();
+        sink.send_all(&mut all.map(|(_, x)| Ok(x))).await.map_err(|e| anyhow::anyhow!(e)).capture_result(symbol).await.unwrap();
     });
 }
 

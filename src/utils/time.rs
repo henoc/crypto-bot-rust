@@ -1,4 +1,4 @@
-use labo::export::anyhow;
+use anyhow;
 use labo::export::chrono::{DateTime, Utc, TimeZone, NaiveDateTime, FixedOffset, Duration, self};
 use serde::{Deserializer, Deserialize};
 

@@ -36,6 +36,8 @@ ordered-float = "3.7.0"
 crossterm = "0.26.1"
 percent-encoding = "2.3.1"
 encoding_rs = "0.8.33"
+thiserror = "1.0.56"
+anyhow = { version = "1.0.79", features = ["backtrace"] }
 
 [profile.dev]
 panic = "abort"

@@ -1,8 +1,8 @@
 use std::{collections::HashMap, env};
 
 use clap::Parser;
-use bot::{config::{Strategy, self}, logger, global_vars::{DEBUG, debug_is_none}};
-use labo::export::anyhow::{Context, self};
+use bot::{client::mail::send_mail, config::{self, Strategy}, global_vars::{debug_is_none, DEBUG}, logger};
+use anyhow::{Context, self};
 use log::LevelFilter;
 use once_cell::sync::Lazy;
 
@@ -10,6 +10,8 @@ use once_cell::sync::Lazy;
 struct Args {
     #[clap(short, long)]
     name: String,
+    #[clap(short, long)]
+    command: Option<String>,
     #[clap(short, long)]
     debug: Option<String>,
     #[clap(short, long)]
@@ -34,12 +36,24 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let strategy = CONFIG.get(&args.name).with_context(|| format!("{} is not found in config", args.name))?;
+    match run_strategy(strategy, args.command).await {
+        Ok(_) => Ok(()),
+        Err(e) if debug_is_none() => {
+            send_mail(format!("{} - {}", e, env::var("NAME")?), format!("{:?}", e))?;
+            Err(e)
+        }
+        Err(e) => Err(e),
+    }?;
+    Ok(())
+}
+
+async fn run_strategy(strategy: &'static Strategy, command: Option<String>) -> anyhow::Result<()> {
     match strategy {
         Strategy::Shannon(strategy_config) => {
             bot::strategy::shannon_gmo::start_shannon_gmo(strategy_config).await;
         },
         Strategy::Abcdf(strategy_config) => {
-            bot::strategy::abcdf_tachibana::start_abcdf(strategy_config).await;
+            bot::strategy::abcdf_tachibana::action_abcdf(strategy_config, command.context("cmd arg is none")?.as_str()).await?;
         },
     }
     Ok(())

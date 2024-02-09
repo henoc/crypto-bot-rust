@@ -1,4 +1,5 @@
-use labo::export::{serde_json::Value, anyhow};
+use labo::export::serde_json::Value;
+use anyhow;
 
 pub fn object_update(a: &mut Value, b: Value) -> anyhow::Result<()> {
     match (a, b) {

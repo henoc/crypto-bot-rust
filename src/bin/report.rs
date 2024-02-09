@@ -1,4 +1,5 @@
-use labo::{export::{polars::{export::regex::Regex, prelude::{DataFrame, NamedFrom}, series::Series}, anyhow::Context}, export::anyhow};
+use labo::{export::{polars::{export::regex::Regex, prelude::{DataFrame, NamedFrom}, series::Series}}};
+use anyhow::Context;
 use duct::cmd;
 
 use bot::client::mail::send_mail;

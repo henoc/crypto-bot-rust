@@ -1,4 +1,4 @@
-use labo::export::anyhow;
+use anyhow;
 use labo::export::chrono::{DateTime, Utc, Duration};
 use labo::export::{polars::{prelude::{DataFrame, NamedFrom, ChunkedArray, TimeUnit, IntoLazy}, series::{Series, IntoSeries}, time::{PolarsUpsample}, lazy::dsl::{col, lit}}};
 use serde::{Serialize, Serializer};

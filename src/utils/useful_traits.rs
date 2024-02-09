@@ -1,8 +1,8 @@
 use std::{collections::HashMap, hash::{Hash, BuildHasher}, str::FromStr, sync::OnceLock};
 
+use anyhow::{self, Context};
 use easy_ext::ext;
 use hyper::{HeaderMap, http::HeaderName};
-use labo::export::anyhow::{self, Context};
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 

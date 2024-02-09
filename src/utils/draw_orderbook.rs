@@ -1,7 +1,7 @@
 use std::io::{stdout, Write};
 
 use crossterm::{execute, cursor::MoveTo, terminal::{Clear, ClearType}, queue, style::Print, ExecutableCommand};
-use labo::export::anyhow;
+use anyhow;
 
 use crate::{order_types::Side, symbol::Symbol, data_structure::float_exp::FloatExp};
 

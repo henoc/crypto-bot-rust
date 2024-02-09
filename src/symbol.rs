@@ -1,7 +1,8 @@
 use std::fmt::Display;
 
-use labo::export::{serde_json, strum::EnumString};
+use labo::export::{serde_json};
 use serde::{Deserialize, Serialize};
+use strum::EnumString;
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Eq, Hash, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
@@ -137,6 +138,7 @@ impl Symbol {
             },
             Exchange::Bitflyer => -8,
             Exchange::Coincheck => -8,
+            Exchange::Tachibana => 2,
             _ => panic!("not implemented"),
         }
     }
@@ -151,6 +153,7 @@ impl Symbol {
             },
             Exchange::Bitflyer => 0,
             Exchange::Coincheck => 0,
+            Exchange::Tachibana => -1,
             _ => panic!("not implemented"),
         }
     }

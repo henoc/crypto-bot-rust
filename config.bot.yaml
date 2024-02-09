@@ -21,4 +21,4 @@ abcdf_tachibana:
     - "7203"
     - "6758"
     - "9432"
-  model_path: /var/opt/model.lz4
+  model_path: model.zstd

@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use labo::export::anyhow::{bail, self};
+use anyhow::{bail, self};
 use labo::export::chrono::{DateTime, Utc};
 use hyper::{Method, HeaderMap};
 use serde::{Deserialize, Serialize, Deserializer};

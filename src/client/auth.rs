@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use labo::export::{chrono, serde_json, anyhow};
+use anyhow;
+use labo::export::{chrono, serde_json};
 use maplit::hashmap;
 use hyper::Method;
 use ring::hmac;
