@@ -61,6 +61,16 @@ pub enum Currency {
     /// NTT
     #[serde(rename = "9432")]
     T9432,
+    #[serde(rename = "6861")]
+    T6861,
+    #[serde(rename = "8306")]
+    T8306,
+    #[serde(rename = "8035")]
+    T8035,
+    #[serde(rename = "9983")]
+    T9983,
+    #[serde(rename = "4063")]
+    T4063,
 }
 
 impl Currency {

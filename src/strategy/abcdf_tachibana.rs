@@ -52,7 +52,7 @@ pub async fn action_abcdf(config: &'static AbcdfConfig, cmd: &str) -> anyhow::Re
     }
 
     match cmd {
-        "create_price_history" => {
+        "update_price_history" => {
             client.login().await?;
             create_price_history(&client, config).await?;
         },
@@ -161,7 +161,7 @@ async fn predict_next(client: &TachibanaClient, config: &AbcdfConfig, business_d
     }
     // predictして、次営業日前日のpred値を取得
     //   今日が金曜日のとき、日曜日に月曜日の予測値が入るため
-    let pred = predict_process(df, config.model_path.as_str())?
+    let pred = predict_process(df, config.model_path.as_str()).await?
         .at::<f64>(&config.symbol.base.to_string(), col("opentime").eq(lit(predicable_next_day)))?;
     info!("Predicted next day's value: {}. Next day: {}", pred, business_date.s_yoku_eigyou_day_1);
     Ok(pred)

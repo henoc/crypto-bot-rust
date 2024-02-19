@@ -3,25 +3,30 @@
 - amazon linux 2023
 
 ```shell
-sudo yum install openssl-devel
+sudo su -
+yum install openssl-devel
 
-curl -s https://packagecloud.io/install/repositories/immortal/immortal/script.rpm.sh | sudo bash
-sudo yum install immortal
-sudo vim /etc/systemd/system/immortaldir.service    # immortalの対象ディレクトリを /home/ec2-user/immortal に変更
-sudo systemctl start immortaldir
+curl -s https://packagecloud.io/install/repositories/immortal/immortal/script.rpm.sh | bash
+yum install immortal
+vim /etc/systemd/system/immortaldir.service    # immortalの対象ディレクトリを /home/ec2-user/immortal に変更
+systemctl start immortaldir
 # hostname変更
-sudo hostnamectl set-hostname s3
+hostnamectl set-hostname s3
+
+# タイムゾーン変更
+timedatectl set-timezone Asia/Tokyo            # date で確認
 
 # cron設定
-sudo yum install cronie
-sudo systemctl start crond.service
-sudo crontab -e
+yum install cronie
+systemctl start crond.service
+crontab -e
 # 58 * * * * cd /home/ec2-user/; ./report >> /tmp/report.log 2>&1
 # 1 22 * * * cd /home/ec2-user/; ./transfer >> /tmp/transfer.log 2>&1
 ```
 
 ### EC2メモ
 
+- t3インスタンスはアクション>インスタンスの設定>クレジット仕様の変更で無制限課金を外す
 - cronのログ確認: `journalctl -u crond`
 
 ## クロスコンパイル

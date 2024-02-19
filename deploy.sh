@@ -1,7 +1,7 @@
 #!/bin/bash
 
 POSITIONAL_ARGS=()
-SERVER="aws-ec2-3"
+SERVER="aws-ec2-4"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -24,9 +24,14 @@ done
 set -- "${POSITIONAL_ARGS[@]}" # restore positional parameters
 
 rsync -uvz target/x86_64-unknown-linux-gnu/release/bot "${SERVER}":~/
-rsync -uvz target/x86_64-unknown-linux-gnu/release/report "${SERVER}":~/
-rsync -uvz target/x86_64-unknown-linux-gnu/release/transfer "${SERVER}":~/
-
 rsync -uvz config.bot.yaml "${SERVER}":~/
 rsync -uvz config.yaml "${SERVER}":~/
-rsync -uvzr --delete immortal/ "${SERVER}":~/immortal/
+rsync -uvz cron-settings.crontab "${SERVER}":~/cron-settings.crontab
+# rsync -uvzr --delete cron/ "${SERVER}":~/.cron    # Rename dirname to avoid moving the cron files to /usr/local/bot/
+
+ssh "${SERVER}" -t << EOL
+  sudo su -
+  mkdir -p /usr/local/bot
+  mv /home/ec2-user/* /usr/local/bot/
+  crontab /usr/local/bot/cron-settings.crontab
+EOL
