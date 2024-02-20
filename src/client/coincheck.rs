@@ -1,13 +1,13 @@
-use std::{collections::HashMap, str::FromStr, sync::{atomic::AtomicI64, Arc}};
+use std::{collections::HashMap, str::FromStr};
 use std::time::Duration as StdDuration;
 
 use anyhow;
 use labo::export::{chrono::{Duration, DateTime, Utc, self}};
-use hyper::{HeaderMap, header::CONTENT_TYPE, http::HeaderName};
+use hyper::{HeaderMap};
 use log::info;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Deserializer, Serialize};
 use labo::export::serde_json::Value;
 use tokio::sync::Mutex;
 
@@ -147,7 +147,7 @@ impl KLineResponse {
     /// [1685932020,null,null,null,null,0.0], の場合がある
     pub fn to_klines(&self, until: DateTime<Utc>, timeframe: Duration) -> anyhow::Result<KLines> {
         let ret = KLines::new_options(&self.0, UnixTimeUnit::Second)?;
-        Ok(ret.sorted()?.reindex(until, timeframe)?)
+        ret.sorted()?.reindex(until, timeframe)
     }
 }
 
@@ -258,7 +258,7 @@ where
 {
     let s = String::deserialize(deserializer)?;
     let s = s.to_uppercase();
-    let cs = s.split("_").collect::<Vec<_>>();
+    let cs = s.split('_').collect::<Vec<_>>();
     if cs.len() != 2 {
         return Err(serde::de::Error::custom(format!("invalid pair: {}", s)));
     }
@@ -560,7 +560,7 @@ fn test_deserialize_open_orders() {
     use labo::export::serde_json;
     let s = r#"{"success": true, "orders": [{"id": 5710599665, "order_type": "sell", "rate": "4200000.0", "pair": "btc_jpy", "pending_amount": "0.005", "pending_market_buy_amount": null, "stop_loss_rate": null, "created_at": "2023-07-29T14:23:31.000Z"}]}"#;
     let obj: OpenOrderResponse = serde_json::from_str(s).unwrap();
-    assert_eq!(obj.success, true);
+    assert!(obj.success);
     assert_eq!(obj.orders.len(), 1);
     assert_eq!(obj.orders[0].id, 5710599665);
 }

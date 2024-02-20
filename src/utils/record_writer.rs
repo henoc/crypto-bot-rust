@@ -6,9 +6,9 @@ use anyhow;
 use serde::Serialize;
 use labo::export::serde_json::Value;
 
-use crate::{symbol::{Symbol, Currency}, client::types::TradeRecord, utils::time::datetime_utc};
+use crate::symbol::Symbol;
 
-use super::time::{JST, datetime_utc_from_timestamp, parse_format_time_utc};
+use super::time::JST;
 
 
 pub enum SerializerType {
@@ -39,7 +39,7 @@ impl<S: Serialize + std::fmt::Debug> SerialRecordWriter<S> {
     pub fn new(name: &str, symbol: &Symbol, ext: &str, time_fn: Box<dyn Fn(&S) -> Option<DateTime<Utc>> + std::marker::Send + std::marker::Sync>) -> SerialRecordWriter<S> {
         SerialRecordWriter {
             name: name.to_string(),
-            symbol: symbol.clone(),
+            symbol: *symbol,
             ext: ext.to_string(),
             time_fn,
             que: Vec::new(),
@@ -104,6 +104,8 @@ impl SerialRecordWriter<Value> {
 
 #[test]
 fn test_record_writer() {
+    use crate::utils::time::parse_format_time_utc;
+    use crate::symbol::Currency;
     let record_writer = SerialRecordWriter::<Value>::new("test", &Symbol::new(Currency::BTC, Currency::JPY, crate::symbol::SymbolType::Spot, crate::symbol::Exchange::Coincheck), "json", Box::new(|item| {
         parse_format_time_utc(item["timestamp"].as_str().unwrap()).ok()
     }));
@@ -136,6 +138,9 @@ fn test_record_writer() {
 fn test_mpack_record_writer() {
     use crate::client::types::{TradeRecord, MpackTradeRecord};
     use crate::order_types::Side;
+    use crate::symbol::Currency;
+    use crate::utils::time::datetime_utc_from_timestamp;
+    use crate::utils::time::datetime_utc;
     let symbol = Symbol::new(Currency::BTC, Currency::JPY, crate::symbol::SymbolType::Spot, crate::symbol::Exchange::Coincheck);
     let rw = SerialRecordWriter::<MpackTradeRecord>::new(
         "mpacktest",

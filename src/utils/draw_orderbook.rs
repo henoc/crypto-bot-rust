@@ -1,6 +1,6 @@
-use std::io::{stdout, Write};
+use std::io::stdout;
 
-use crossterm::{execute, cursor::MoveTo, terminal::{Clear, ClearType}, queue, style::Print, ExecutableCommand};
+use crossterm::{execute, cursor::MoveTo, style::Print, ExecutableCommand};
 use anyhow;
 
 use crate::{order_types::Side, symbol::Symbol, data_structure::float_exp::FloatExp};

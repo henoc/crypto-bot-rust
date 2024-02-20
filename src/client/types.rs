@@ -1,6 +1,6 @@
 use anyhow;
 use labo::export::chrono::{DateTime, Utc, Duration};
-use labo::export::{polars::{prelude::{DataFrame, NamedFrom, ChunkedArray, TimeUnit, IntoLazy}, series::{Series, IntoSeries}, time::{PolarsUpsample}, lazy::dsl::{col, lit}}};
+use labo::export::polars::{prelude::{DataFrame, NamedFrom, ChunkedArray, TimeUnit, IntoLazy}, series::{Series, IntoSeries}, time::PolarsUpsample, lazy::dsl::{col, lit}};
 use serde::{Serialize, Serializer};
 use labo::export::serde_json::{Value, json};
 
@@ -137,7 +137,7 @@ impl KLines {
         let volume = self.df.column("volume")?.f64()?;
         for (i, t) in opentime.enumerate() {
             ret.push(json!({
-                "opentime": t.map(|t| format_time_naive(t)),
+                "opentime": t.map(format_time_naive),
                 "open": open.get(i),
                 "high": high.get(i),
                 "low": low.get(i),
@@ -197,38 +197,53 @@ pub fn trades_time_fn(mpack_trade_record: &MpackTradeRecord) -> Option<DateTime<
 
 #[test]
 fn test_klines() {
-    let mut ohlcvs: Vec<Vec<Option<f64>>> = vec![];
-    ohlcvs.push(vec![
-        Some(1686121920.),
-        Some(3743331.0),
-        Some(3743906.0),
-        Some(3742405.0),
-        Some(3742405.0),
-        Some(0.30817043)
-    ]);
-    ohlcvs.push(vec![
-        Some(1686121980.),
-        None,
-        None,
-        None,
-        None,
-        Some(0.)
-    ]);
-    ohlcvs.push(vec![
+    let ohlcvs: Vec<Vec<Option<f64>>> = vec![
+        vec![
+            Some(1686121920.),
+            Some(3743331.0),
+            Some(3743906.0),
+            Some(3742405.0),
+            Some(3742405.0),
+            Some(0.30817043),
+        ],
+        vec![
+            Some(1686121980.),
+            None,
+            None,
+            None,
+            None,
+            Some(0.),
+        ],
+        vec![
             Some(1686122040.),
             Some(3740181.0),
             Some(3741946.0),
             Some(3738559.0),
             Some(3740184.0),
-            Some(1.49343964)
-    ]);
+            Some(1.49343964),
+        ],
+    ];
     let klines = KLines::new_options(&ohlcvs, UnixTimeUnit::Second).unwrap();
     println!("{:?}", klines.df);
     let until = datetime_utc_from_timestamp(1686122100, UnixTimeUnit::Second);
     let klines = klines.reindex(until, Duration::seconds(60)).unwrap();
     println!("{:?}", klines.df);
 
-    println!("{:?}", klines.filter(Some(datetime_utc_from_timestamp(1686121980,UnixTimeUnit::Second)), Some(datetime_utc_from_timestamp(1686122100,UnixTimeUnit::Second))).unwrap().df);
+    println!(
+        "{:?}",
+        klines
+            .filter(
+                Some(datetime_utc_from_timestamp(1686121980, UnixTimeUnit::Second)),
+                Some(datetime_utc_from_timestamp(1686122100, UnixTimeUnit::Second))
+            )
+            .unwrap()
+            .df
+    );
 
-    assert_eq!(klines.at(datetime_utc_from_timestamp(1686121920, UnixTimeUnit::Second), "open").unwrap(), Some(3743331.0));
+    assert_eq!(
+        klines
+            .at(datetime_utc_from_timestamp(1686121920, UnixTimeUnit::Second), "open")
+            .unwrap(),
+        Some(3743331.0)
+    );
 }

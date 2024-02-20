@@ -13,6 +13,7 @@ pybotters = "*"
 pyyaml = "*"
 requests = "*"
 urllib3 = "*"
+paramiko = "*"
 
 [dev-packages]
 

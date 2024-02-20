@@ -5,7 +5,7 @@ use labo::export::{serde_json, chrono};
 use labo::export::chrono::Duration;
 use labo::export::serde_json::{Value, json};
 
-use crate::symbol::{Exchange, Symbol, Currency};
+use crate::symbol::Symbol;
 
 use super::json_utils::object_update;
 
@@ -47,7 +47,7 @@ impl StatusRepository {
                 }
             }
         }
-        self.data.insert(symbol.clone(), data.clone());
+        self.data.insert(*symbol, data.clone());
         Ok(())
     }
 
@@ -60,9 +60,7 @@ impl StatusRepository {
         let file_name = self.file_name(&symbol);
         let mut file = File::create(file_name)?;
         diff["updated"] = Value::from(chrono::Utc::now().timestamp());
-        if !self.data.contains_key(&symbol) {
-            self.data.insert(symbol.clone(), json!({}));
-        }
+        self.data.entry(symbol).or_insert_with(|| json!({}));
         let mut next = self.data[&symbol].clone();
         object_update(&mut next, diff)?;
         serde_json::to_writer_pretty(&mut file, &next)?;
@@ -83,6 +81,8 @@ impl Index<&Symbol> for StatusRepository {
 
 #[test]
 fn test_status() {
+    use crate::symbol::Currency;
+    use crate::symbol::Exchange;
     let mut status = StatusRepository::new("test");
     let symbol = Symbol::new(Currency::BTC, Currency::JPY, crate::symbol::SymbolType::Spot, Exchange::Coincheck);
     status.init(&symbol, Some(Duration::seconds(0))).unwrap();
@@ -92,12 +92,12 @@ fn test_status() {
         "a": 1,
         "b": 2,
     });
-    status.update(symbol.clone(), diff.clone()).unwrap();
+    status.update(symbol, diff.clone()).unwrap();
 
     let mut status = StatusRepository::new("test");
     status.init(&symbol, Some(Duration::seconds(60))).unwrap();
     let data = status.get(&symbol);
     assert_eq!(data["a"].as_i64(), diff["a"].as_i64());
     assert_eq!(data["b"].as_i64(), diff["b"].as_i64());
-    assert_eq!(data["updated"].as_i64().is_some(), true);
+    assert!(data["updated"].as_i64().is_some());
 }

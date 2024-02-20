@@ -1,3 +1,3 @@
 RUST_BACKTRACE=full
-4 21 * * * cd /usr/local/bot; ./bot --name abcdf_tachibana --command update_price_history >> /var/tmp/abcdf_tachibana.log 2>&1
-58 14 * * * cd /usr/local/bot; ./bot --name abcdf_tachibana --command update_order >> /var/tmp/abcdf_tachibana.log 2>&1
+4 21 * * * cd /usr/local/bot; ./bot --name abcdf_tachibana --command update_price_history >> /var/tmp/abcdf_tachibana.log 2>&1; /sbin/shutdown -h now
+57 14 * * * cd /usr/local/bot; ./bot --name abcdf_tachibana --debug random_predict --command update_order >> /var/tmp/abcdf_tachibana.log 2>&1; /sbin/shutdown -h now

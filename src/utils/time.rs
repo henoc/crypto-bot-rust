@@ -165,7 +165,7 @@ fn test_next_sleep_duration_ms() {
     )), (5*60-10)*1000);
     assert_eq!(next_sleep_duration_ms(curr.timestamp_millis(), ScheduleExpr::new(
         Duration::minutes(5), Duration::minutes(1)
-    )), (1*60-10)*1000);
+    )), (60-10)*1000);
 }
 
 #[test]

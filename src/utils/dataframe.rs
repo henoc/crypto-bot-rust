@@ -1,5 +1,5 @@
 use labo::export::chrono::{DateTime, Utc};
-use labo::export::polars::{series::{Series, IntoSeries}, prelude::{ChunkedArray, TimeUnit}, frame::DataFrame, error::PolarsResult, lazy::{frame::IntoLazy, dsl::Expr}, datatypes::AnyValue};
+use labo::export::polars::{series::{Series, IntoSeries}, prelude::{ChunkedArray, TimeUnit}, frame::DataFrame, error::PolarsResult, lazy::{frame::IntoLazy, dsl::Expr}};
 use labo::export::polars::export::num::NumCast;
 
 pub fn chrono_dt_to_series_ms(name: &str, vecs: Vec<DateTime<Utc>>) -> Series {
@@ -15,7 +15,7 @@ pub impl DataFrame {
         let row = self.clone().lazy().filter(row_pred).collect()?;
         let s = row.column(col_name)?;
         assert!(s.len() == 1, "row_pred must be unique, but found len {}.", s.len());
-        Ok(s.get(0)?.try_extract()?)
+        s.get(0)?.try_extract()
     }
 
     fn skip(&self, row_size: usize) -> PolarsResult<DataFrame> {

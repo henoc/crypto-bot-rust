@@ -187,8 +187,8 @@ fn deserialize_gmo_symbol<'de, D>(deserializer: D) -> Result<Symbol, D::Error>
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let cs = s.split("_").collect::<Vec<_>>();
-        if cs.len() >= 3 || cs.len() == 0 {
+        let cs = s.split('_').collect::<Vec<_>>();
+        if cs.len() >= 3 || cs.is_empty() {
             return Err(serde::de::Error::custom("invalid symbol"));
         }
         let (base, quote, r#type) = if cs.len() == 1 {

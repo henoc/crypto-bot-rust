@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 use std::{sync::atomic::AtomicU32, collections::HashMap};
 
 use anyhow;
-use labo::export::chrono::{DateTime, Utc, FixedOffset, NaiveDate, Timelike};
+use labo::export::chrono::{Utc, NaiveDate, Timelike};
 use labo::export::serde_json;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize, de::DeserializeOwned, Deserializer};
@@ -13,7 +13,7 @@ use encoding_rs::SHIFT_JIS;
 
 use crate::data_structure::float_exp::FloatExp;
 use crate::order_types::Side;
-use crate::{utils::{time::JST, serde::{deserialize_f64_from_str, serialize_u32_to_str, deserialize_i64_from_str, deserialize_f64_opt_from_str}, useful_traits::StaticVarExt, json_utils::object_update}, symbol::{Currency, Symbol}};
+use crate::{utils::{time::JST, serde::{deserialize_f64_from_str, serialize_u32_to_str, deserialize_i64_from_str, deserialize_f64_opt_from_str}, useful_traits::StaticVarExt, json_utils::object_update}, symbol::Currency};
 
 use super::credentials::TachibanaCredentials;
 
@@ -456,7 +456,7 @@ fn serialize_vec_to_str<S, T>(x: &Vec<T>, serializer: S) -> Result<S::Ok, S::Err
     {
         let mut s = String::new();
         for c in x {
-            s.push_str(&serde_json::to_string(c).unwrap().replace("\"", ""));
+            s.push_str(&serde_json::to_string(c).unwrap().replace('\"', ""));
             s.push(',');
         }
         serializer.serialize_str(&s)
@@ -858,5 +858,5 @@ async fn test_tachibana_get_price_history() {
         s_issue_code: Currency::T9432,
         s_sizyou_c: StockMarket::Tsc,
     }).await.unwrap();
-    assert!(res.a_clm_mfds_market_price_history.len() > 0);
+    assert!(!res.a_clm_mfds_market_price_history.is_empty());
 }

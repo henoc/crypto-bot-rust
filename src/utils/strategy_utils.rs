@@ -1,17 +1,17 @@
-use std::{collections::HashMap, env, process::exit};
+use std::{env};
 
-use anyhow::{Context, self};
+use anyhow::{self};
 use async_trait::async_trait;
 use labo::export::chrono::Duration;
-use futures::{stream::SplitSink, SinkExt, Sink, channel::mpsc::UnboundedReceiver, StreamExt};
+use futures::{SinkExt, Sink, channel::mpsc::UnboundedReceiver, StreamExt};
 use hyper::StatusCode;
 use log::info;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use tokio::{spawn, net::TcpStream};
-use tokio_stream::StreamMap;
-use tokio_tungstenite::{WebSocketStream, MaybeTlsStream, tungstenite::Message};
 
-use crate::{symbol::{Symbol, Exchange}, client::{mail::send_mail, types::KLines}, error_types::BotError, utils::time::{UnixTimeUnit, now_floor_time}, data_structure::float_exp::FloatExp, order_types::{PosSide, Side}};
+use tokio::{spawn};
+use tokio_stream::StreamMap;
+use tokio_tungstenite::{tungstenite::Message};
+
+use crate::{symbol::{Symbol, Exchange}, client::{mail::send_mail}, error_types::BotError, data_structure::float_exp::FloatExp, order_types::{Side}};
 
 
 #[async_trait]
@@ -36,23 +36,15 @@ impl CaptureResult for anyhow::Result<()> {
                     _ => {},
                 };
                 match e.downcast_ref::<tokio_tungstenite::tungstenite::Error>() {
-                    Some(wse) if symbol.exc == Exchange::Bitflyer || symbol.exc == Exchange::Gmo => {
-                        match wse {
-                            tokio_tungstenite::tungstenite::Error::Http(res) => {
-                                match res.status() {
-                                    StatusCode::SERVICE_UNAVAILABLE | StatusCode::BAD_GATEWAY => {
-                                        info!("{} websocket disconnected (5xx), wait 60s", symbol.exc);
-                                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-                                        std::env::remove_var("RUST_BACKTRACE");
-                                        return Err(e);
-                                    },
-                                    _ => {},
-                                }
-                            },
-                            _ => {},
+                    Some(tokio_tungstenite::tungstenite::Error::Http(res)) if symbol.exc == Exchange::Bitflyer || symbol.exc == Exchange::Gmo => {
+                        if let StatusCode::SERVICE_UNAVAILABLE | StatusCode::BAD_GATEWAY = res.status() {
+                            info!("{} websocket disconnected (5xx), wait 60s", symbol.exc);
+                            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                            std::env::remove_var("RUST_BACKTRACE");
+                            return Err(e);
                         }
-                    },
-                    _ => {},
+                    }
+                    _ => {}
                 }
                 send_mail(format!("{} - {}", e, env::var("NAME").unwrap()), format!("{:?}", e)).unwrap();
                 return Err(e);

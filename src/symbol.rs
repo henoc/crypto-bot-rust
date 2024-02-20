@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use labo::export::{serde_json};
+use labo::export::serde_json;
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
 
@@ -14,15 +14,9 @@ pub enum Exchange {
     Tachibana,
 }
 
-impl Exchange {
-    pub fn to_string(&self) -> String {
-        serde_json::to_string(&self).unwrap().replace("\"", "")
-    }
-}
-
 impl Display for Exchange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", serde_json::to_string(&self).unwrap().replace('\"', ""))
     }
 }
 
@@ -34,15 +28,9 @@ pub enum SymbolType {
     Margin,
 }
 
-impl SymbolType {
-    pub fn to_string(&self) -> String {
-        serde_json::to_string(&self).unwrap().replace("\"", "")
-    }
-}
-
 impl Display for SymbolType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", serde_json::to_string(&self).unwrap().replace('\"', ""))
     }
 }
 
@@ -73,15 +61,9 @@ pub enum Currency {
     T4063,
 }
 
-impl Currency {
-    pub fn to_string(&self) -> String {
-        serde_json::to_string(&self).unwrap().replace("\"", "")
-    }
-}
-
 impl Display for Currency {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", serde_json::to_string(&self).unwrap().replace('\"', ""))
     }
 }
 
@@ -101,7 +83,7 @@ impl Symbol {
             base,
             quote,
             settlement: quote,
-            r#type: r#type,
+            r#type,
             exc,
         }
     }

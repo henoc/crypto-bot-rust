@@ -38,8 +38,8 @@ static BALANCE: OnceLock<RwLock<Balance>> = OnceLock::new();
 
 pub async fn start_shannon_gmo(config: &ShannonConfig) {
     
-    BALANCE.set(RwLock::new(Balance::new(config.symbol.clone()))).unwrap();
-    let symbol_ref1 = config.symbol.clone();
+    BALANCE.set(RwLock::new(Balance::new(config.symbol))).unwrap();
+    let symbol_ref1 = config.symbol;
     let virtual_amount_ref = config.virtual_amount.clone();
 
     let client = GmoClient::new(Some(CREDENTIALS.gmo.clone()));
@@ -47,7 +47,7 @@ pub async fn start_shannon_gmo(config: &ShannonConfig) {
     
     select! {
         _ = spawn(async move {
-            let symbol = symbol_ref1.clone();
+            let symbol = symbol_ref1;
             loop {
                 sleep_until_next(ScheduleExpr::new(Duration::hours(8), Duration::minutes(0))).await;
                 update_assets(&client, &symbol).await.pipe(capture_result(&symbol));
@@ -60,7 +60,8 @@ pub async fn start_shannon_gmo(config: &ShannonConfig) {
 }
 
 fn capture_result(symbol: &Symbol) -> impl Fn(Result<()>) + '_ {
-        let l =  |result: Result<()>| {
+        
+        |result: Result<()>| {
             match &result {
                 Ok(_) => (),
                 Err(e) if matches!(e.downcast_ref::<BotError>(), Some(BotError::Maintenance)) => info!("Maintenance status found"),
@@ -69,8 +70,7 @@ fn capture_result(symbol: &Symbol) -> impl Fn(Result<()>) + '_ {
                     result.unwrap()
                 },
             }
-        };
-        l
+        }
 }
 
 #[derive(Debug)]
@@ -139,7 +139,7 @@ async fn create_order(client: &GmoClient, symbol: &Symbol, virtual_amount: &Virt
             continue;
         }
         let order = CreateOrderRequest {
-            symbol: symbol.clone(),
+            symbol: *symbol,
             side,
             execution_type: OrderType::Limit,
             size: format!("{}", amount),

@@ -4,11 +4,11 @@ use hyper::{Method, HeaderMap, StatusCode};
 use labo::export::serde_json;
 use anyhow;
 use maplit::hashmap;
-use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use url::Url;
 
-use crate::{order_types::Side, symbol::Symbol, error_types::BotError, data_structure::float_exp::FloatExp, utils::time::{datetime_utc, deserialize_rfc3339}};
+use crate::{order_types::Side, symbol::Symbol, error_types::BotError, data_structure::float_exp::FloatExp, utils::time::{deserialize_rfc3339}};
 
 use super::{credentials::ApiCredentials, method::{make_header, GetRequest, get, post, HasPath, post_no_parse}, auth::bitflyer_auth, types::TradeRecord};
 
@@ -50,7 +50,7 @@ impl BitflyerClient {
         query: S,
     ) -> anyhow::Result<S::Response> {
         let url = Url::parse_with_params(format!("{}{}", &self.endpoint, S::PATH).as_str(), query.to_query()).unwrap();
-        let header_path = if query.to_query().len() > 0 {
+        let header_path = if !query.to_query().is_empty() {
             url.path().to_string() + "?" + url.query().unwrap()
         } else {
             url.path().to_string()

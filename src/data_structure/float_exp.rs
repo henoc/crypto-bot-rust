@@ -3,6 +3,7 @@ use std::{ops::{Add, Sub, Mul, AddAssign, SubAssign, Div}, fmt::{Display, Debug}
 use labo::export::serde_json;
 use serde::Serialize;
 
+#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Copy, Eq, Hash)]
 pub struct FloatExp {
     pub value: i64,

@@ -59,9 +59,6 @@ pub enum OrderType {
 impl OrderType {
     #[inline]
     pub const fn is_stoploss(&self) -> bool {
-        match self {
-            OrderType::Stop | OrderType::StopLimit => true,
-            _ => false,
-        }
+        matches!(self, OrderType::Stop | OrderType::StopLimit)
     }
 }

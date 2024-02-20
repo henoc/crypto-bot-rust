@@ -53,9 +53,9 @@ impl<'de> Deserialize<'de> for Timeframe {
     }
 }
 
-impl Into<Duration> for Timeframe {
-    fn into(self) -> Duration {
-        self.0
+impl From<Timeframe> for Duration {
+    fn from(val: Timeframe) -> Self {
+        val.0
     }
 }
 
