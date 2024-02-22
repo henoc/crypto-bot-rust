@@ -3,3 +3,4 @@ config.yaml
 .status_*
 /market
 __*
+/clib

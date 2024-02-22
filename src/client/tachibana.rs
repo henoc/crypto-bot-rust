@@ -583,6 +583,7 @@ pub struct MarginBalanceResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarginPositionResponse {
+    #[serde(deserialize_with = "deserialize_vec_or_emptystr")]
     pub a_shinyou_tategyoku_list: Vec<MarginPositionItem>,
     #[serde(deserialize_with = "deserialize_i64_from_str")]
     pub s_hyouka_soneki_goukei_kaidate: i64,
@@ -597,6 +598,25 @@ pub struct MarginPositionResponse {
     #[serde(deserialize_with = "deserialize_i64_from_str")]
     pub s_total_daikin: i64,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum VecOrString<T> {
+    Vec(Vec<T>),
+    String(String),
+}
+
+fn deserialize_vec_or_emptystr<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
+    where
+        T: DeserializeOwned,
+        D: Deserializer<'de>,
+    {
+        match VecOrString::<T>::deserialize(deserializer) {
+            Ok(VecOrString::Vec(v)) => Ok(v),
+            Ok(VecOrString::String(_)) => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
+    }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -823,11 +843,13 @@ async fn test_tachibana_order() {
 #[tokio::test]
 async fn test_tachibana_margin_position() {
     let client = TachibanaClient::new_demo(crate::client::credentials::CREDENTIALS.tachibana.clone());
+    // let client = TachibanaClient::new(crate::client::credentials::CREDENTIALS.tachibana.clone());
     client.login().await.unwrap();
     let res = client.send(MarginPositionRequest {
         s_issue_code: MarginPositionRequestBase::All,
     }).await.unwrap();
     assert_eq!(res.s_total_daikin, 14300000);
+    // println!("{:?}", res);
 }
 
 #[tokio::test]

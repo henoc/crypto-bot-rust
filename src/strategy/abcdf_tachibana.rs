@@ -2,7 +2,7 @@ use std::{time::Duration as StdDuration, fs::File, vec, iter::once, sync::OnceLo
 
 use log::info;
 use anyhow::{self, Context};
-use labo::{abcdf::workflow::predict_process, export::{chrono::Datelike, polars::{datatypes::{DataType, TimeUnit}, frame::{DataFrame, UniqueKeepStrategy}, io::{parquet::{ParquetReader, ParquetWriter}, SerReader}, lazy::{dsl::{col, lit, UnionArgs}, frame::IntoLazy, prelude::concat}, prelude::{DataFrameJoinOps, JoinArgs, JoinType, NamedFrom}, series::Series}}};
+use labo::{abcdf::workflow::predict_process, export::{chrono::Datelike, polars::{datatypes::{DataType, TimeUnit}, frame::{DataFrame, UniqueKeepStrategy}, io::{parquet::{ParquetReader, ParquetWriter}, SerReader}, lazy::{dsl::{col, lit, UnionArgs}, frame::IntoLazy, prelude::concat}, prelude::{DataFrameJoinOps, JoinArgs, JoinType, NamedFrom}, series::Series}}, lightgbm::common::load_lib_lightgbm};
 use parking_lot::RwLock;
 use tokio::time::sleep;
 
@@ -20,6 +20,7 @@ struct Position {
 
 /// cronで呼ばれる
 pub async fn action_abcdf(config: &'static AbcdfConfig, cmd: &str) -> anyhow::Result<()> {
+    load_lib_lightgbm();
     POS.set(RwLock::new(vec![Position { amount: FloatExp::new(0, config.symbol.amount_precision()) }; 2])).unwrap();
 
     let client = TachibanaClient::new(CREDENTIALS.tachibana.clone());
@@ -50,6 +51,13 @@ pub async fn action_abcdf(config: &'static AbcdfConfig, cmd: &str) -> anyhow::Re
         predict_next(&client, config, &business_date).await?;
         return Ok(());
     }
+    if debug_is_some("update_position") {
+        let client = TachibanaClient::new(CREDENTIALS.tachibana.clone());
+        client.login().await?;
+        update_position(&client, config).await?;
+        info!("{:?}", POS.read()?);
+        return Ok(());
+    }
     if debug_is_some_except(&["random_predict"]) {
         anyhow::bail!("Unknown debug option");
     }
@@ -71,6 +79,13 @@ pub async fn action_abcdf(config: &'static AbcdfConfig, cmd: &str) -> anyhow::Re
             }
             update_position(&client, config).await?;
             let pred = if debug_is_some("random_predict") {
+                let res = client.send(PriceRequest {
+                    s_target_issue_code: config.ref_symbols.clone(),
+                    s_target_column: vec![PriceType::LastPrice],
+                }).await?;
+                let last_price = res.a_clm_mfds_market_price.get(&CodeResponse::Defined(config.symbol.base)).with_context(|| format!("Not found {}", config.symbol.base))?.last_price.with_context(|| format!("Last price is None for {}", config.symbol.base))?;
+                LAST_PRICE.set(last_price).unwrap();
+
                 let pred = (today_jst().date_naive().day() % 2) as f64 * - 0.5;
                 info!("Predicted (random) next day's value: {}", pred);
                 pred
@@ -137,6 +152,8 @@ async fn create_price_history(client: &TachibanaClient, config: &AbcdfConfig) ->
             ret = ret.join(&df, ["opentime"], ["opentime"], JoinArgs::new(JoinType::Outer { coalesce: true }))?;
         }
     }
+    // 当日終値を追加
+    let mut ret = add_last_price_to_price_history(client, config, ret).await?.tail(Some(SAVE_HISTORY_LEN));
     let mut file = File::create(price_hisotry_file_path(config.symbol))?;
     ParquetWriter::new(&mut file).finish(&mut ret)?;
     Ok(())
@@ -150,7 +167,8 @@ async fn modify_price_history(client: &TachibanaClient, config: &AbcdfConfig) ->
         return Ok(());
     }
     info!("Modify price history.");
-    let mut df = read_price_history_and_add_last_price(client, config).await?.tail(Some(SAVE_HISTORY_LEN));
+    let df = read_price_history(config.symbol)?;
+    let mut df = add_last_price_to_price_history(client, config, df).await?.tail(Some(SAVE_HISTORY_LEN));
     let mut file = File::create(price_hisotry_file_path(config.symbol))?;
     ParquetWriter::new(&mut file).finish(&mut df)?;
     Ok(())
@@ -158,7 +176,8 @@ async fn modify_price_history(client: &TachibanaClient, config: &AbcdfConfig) ->
 
 /// 営業時間中に呼ばれる。次営業日の終値を予測する
 async fn predict_next(client: &TachibanaClient, config: &AbcdfConfig, business_date: &BusinessDateResponseItem) -> anyhow::Result<f64> {
-    let df = read_price_history_and_add_last_price(client, config).await?;
+    let df = read_price_history(config.symbol)?;
+    let df = add_last_price_to_price_history(client, config, df).await?;
     // log returnを計算
     let mut df = df.lazy().select(&[
         col("opentime"),
@@ -168,21 +187,28 @@ async fn predict_next(client: &TachibanaClient, config: &AbcdfConfig, business_d
     let predicable_next_day = business_date.s_yoku_eigyou_day_1.pred_opt().unwrap();
     let mut d = today_jst().date_naive().succ_opt().unwrap();
     while d <= predicable_next_day {
-        let row = Series::new("opentime", vec![d]).cast(&DataType::Datetime(TimeUnit::Milliseconds, None)).unwrap().into_frame();
+        let row = once(
+            Series::new("opentime", vec![d]).cast(&DataType::Datetime(TimeUnit::Milliseconds, None)).context("Failed to cast")
+        ).chain(
+            df.get_column_names().iter().filter(|&c| *c != "opentime").map(|c| Ok(Series::new(c, vec![Option::<f64>::None])))
+        ).collect::<anyhow::Result<DataFrame>>()?;
         df = concat(&[df.lazy(), row.lazy()], UnionArgs::default())?.collect()?;
         d = d.succ_opt().unwrap();
     }
     // predictして、次営業日前日のpred値を取得
     //   今日が金曜日のとき、日曜日に月曜日の予測値が入るため
-    let pred = predict_process(df, config.model_path.as_str()).await?
+    let pred = predict_process(df, config.model_path.as_str(), true).await?
         .at::<f64>(&config.symbol.base.to_string(), col("opentime").eq(lit(predicable_next_day)))?;
     info!("Predicted next day's value: {}. Next day: {}", pred, business_date.s_yoku_eigyou_day_1);
     Ok(pred)
 }
 
+fn read_price_history(symbol: Symbol) -> anyhow::Result<DataFrame> {
+    Ok(ParquetReader::new(File::open(price_hisotry_file_path(symbol))?).finish()?)
+}
+
 /// 営業日に呼ばれる
-async fn read_price_history_and_add_last_price(client: &TachibanaClient, config: &AbcdfConfig) -> anyhow::Result<DataFrame> {
-    let mut df = ParquetReader::new(File::open(price_hisotry_file_path(config.symbol))?).finish()?;
+async fn add_last_price_to_price_history(client: &TachibanaClient, config: &AbcdfConfig, mut df: DataFrame) -> anyhow::Result<DataFrame> {
     let res = client.send(PriceRequest {
         s_target_issue_code: config.ref_symbols.clone(),
         s_target_column: vec![PriceType::LastPrice],

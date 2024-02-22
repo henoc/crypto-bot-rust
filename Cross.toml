@@ -8,3 +8,6 @@
 # image = "rust:1.69"   
 # pre-build = ["apt-get update && apt-get install -y pkg-config libssl-dev"]
 dockerfile = "./Dockerfile"
+
+[target.aarch64-unknown-linux-gnu]
+dockerfile = "./Dockerfile.arm64"
