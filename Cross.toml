@@ -9,5 +9,6 @@
 # pre-build = ["apt-get update && apt-get install -y pkg-config libssl-dev"]
 dockerfile = "./Dockerfile"
 
+# ローカルがx86_64だとビルドがとても遅いのであまり使えない
 [target.aarch64-unknown-linux-gnu]
 dockerfile = "./Dockerfile.arm64"
