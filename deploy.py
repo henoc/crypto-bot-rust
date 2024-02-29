@@ -1,4 +1,5 @@
 import argparse, subprocess, os, json
+from datetime import datetime
 
 def rsync(src:str, dest:str):
     print("rsync " + os.path.basename(src) + ":")
@@ -35,8 +36,10 @@ if __name__ == "__main__":
 
     if args.startStopInstance:
         print(f"start instance. instance_id: {instance_id}")
+        unixtime_sec = datetime.now().timestamp()
         ret = subprocess.run(f"aws ec2 start-instances --instance-ids {instance_id} && aws ec2 wait instance-running --instance-ids {instance_id}", shell=True, capture_output=True, text=True)
         print(ret.stdout + "\n" + ret.stderr)
+        print(f"start instance done. {datetime.now().timestamp() - unixtime_sec} sec")
     
     if "bot" in include_files:
         print(f"target_triple: {target_triple}")

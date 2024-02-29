@@ -342,19 +342,12 @@ impl TachibanaRequest for MarginPositionRequest {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(untagged)]
 pub enum MarginPositionRequestBase {
-    #[serde(serialize_with = "serialize_currency")]
     Currency(Currency),
     #[serde(rename = "")]
     All,
 }
-
-fn serialize_currency<S>(x: &Currency, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&x.to_string())
-    }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -483,9 +476,19 @@ impl<'de, T: DeserializeOwned> Deserialize<'de> for RestResponse<T> {
         where
             D: serde::Deserializer<'de> {
         let j = Map::<String, Value>::deserialize(deserializer)?;
-        if j.get("p_errno").and_then(|x| x.as_str()).unwrap_or("0") == "0" {
+        let p_check = j.get("p_errno").and_then(|x| x.as_str()).unwrap_or("0") == "0";
+        let res_check = j.get("sResultCode").and_then(|x| x.as_str()).unwrap_or("0") == "0";
+        if p_check && res_check {
             let res = serde_json::from_value::<T>(Value::Object(j)).map_err(serde::de::Error::custom)?;
             Ok(Self(res))
+        } else if !res_check {
+            Err(serde::de::Error::custom(
+                format!(
+                    "{}: ({}){}",
+                    j.get("sCLMID").and_then(|x| x.as_str()).unwrap_or("unknown sCLMID"),
+                    j.get("sResultCode").and_then(|x| x.as_str()).unwrap_or("unknown sResultCode"),
+                    j.get("sResultText").and_then(|x| x.as_str()).unwrap_or("unknown sResultText"),
+            )))
         } else {
             /*
             {
@@ -838,6 +841,15 @@ async fn test_tachibana_order() {
         TradingType::OpenSystemMargin,
     )).await.unwrap();
     assert_eq!(res.s_result_code, "0");
+    let res = client.send(OrderRequest::new(
+        Currency::T9432,
+        OrderSide::Buy,
+        OrderTime::None,
+        OrderPrice::Market,
+        FloatExp::from_f64(2000., 2),
+        TradingType::CloseSystemMargin,
+    )).await.err().unwrap();
+    assert!(res.to_string().contains("信用建玉明細にデータがありません"));
 }
 
 #[tokio::test]
@@ -849,7 +861,7 @@ async fn test_tachibana_margin_position() {
         s_issue_code: MarginPositionRequestBase::All,
     }).await.unwrap();
     assert_eq!(res.s_total_daikin, 14300000);
-    // println!("{:?}", res);
+    println!("{:?}", res);
 }
 
 #[tokio::test]

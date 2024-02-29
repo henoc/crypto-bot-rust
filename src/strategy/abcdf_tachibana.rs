@@ -2,14 +2,16 @@ use std::{time::Duration as StdDuration, fs::File, vec, iter::once, sync::OnceLo
 
 use log::info;
 use anyhow::{self, Context};
-use labo::{abcdf::workflow::predict_process, export::{chrono::Datelike, polars::{datatypes::{DataType, TimeUnit}, frame::{DataFrame, UniqueKeepStrategy}, io::{parquet::{ParquetReader, ParquetWriter}, SerReader}, lazy::{dsl::{col, lit, UnionArgs}, frame::IntoLazy, prelude::concat}, prelude::{DataFrameJoinOps, JoinArgs, JoinType, NamedFrom}, series::Series}}, lightgbm::common::load_lib_lightgbm};
+use labo::{abcdf::workflow::predict_process, export::{chrono::{Datelike, Duration}, polars::{datatypes::{DataType, TimeUnit}, frame::{DataFrame, UniqueKeepStrategy}, io::{parquet::{ParquetReader, ParquetWriter}, SerReader}, lazy::{dsl::{col, lit, UnionArgs}, frame::IntoLazy, prelude::concat}, prelude::{DataFrameJoinOps, JoinArgs, JoinType, NamedFrom}, series::Series}, serde_json::json}, lightgbm::common::load_lib_lightgbm};
+use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use tokio::time::sleep;
 
-use crate::{client::{credentials::CREDENTIALS, tachibana::{BusinessDateResponseItem, CodeResponse, MarginBalanceRequest, MarginPositionRequest, OrderPrice, OrderRequest, OrderTime, PriceHistoryRequest, PriceRequest, PriceType, StockMarket, SystemDataCommand, SystemDataRequest, TachibanaClient, TradingType}}, config::AbcdfConfig, data_structure::float_exp::FloatExp, global_vars::{debug_is_some, debug_is_some_except}, order_types::Side, symbol::Symbol, utils::{dataframe::DataFrameExt, time::today_jst, useful_traits::StaticVarExt}};
+use crate::{client::{credentials::CREDENTIALS, tachibana::{BusinessDateResponseItem, CodeResponse, MarginBalanceRequest, MarginPositionRequest, OrderPrice, OrderRequest, OrderTime, PriceHistoryRequest, PriceRequest, PriceType, StockMarket, SystemDataCommand, SystemDataRequest, TachibanaClient, TradingType}}, config::AbcdfConfig, data_structure::float_exp::FloatExp, global_vars::{debug_is_some, debug_is_some_except}, order_types::Side, symbol::Symbol, utils::{dataframe::DataFrameExt, status_repository::StatusRepository, time::today_jst, useful_traits::StaticVarExt}};
 
 static LAST_PRICE: OnceLock<f64> = OnceLock::new();
 static POS: OnceLock<RwLock<Vec<Position>>> = OnceLock::new();
+static STATUS: Lazy<RwLock<StatusRepository>> = Lazy::new(|| RwLock::new(StatusRepository::new("abcdf")));
 
 const LEVERAGE: i64 = 3;
 
@@ -22,6 +24,7 @@ struct Position {
 pub async fn action_abcdf(config: &'static AbcdfConfig, cmd: &str) -> anyhow::Result<()> {
     load_lib_lightgbm();
     POS.set(RwLock::new(vec![Position { amount: FloatExp::new(0, config.symbol.amount_precision()) }; 2])).unwrap();
+    STATUS.write().init(&config.symbol, Some(Duration::days(14)))?;
 
     let client = TachibanaClient::new(CREDENTIALS.tachibana.clone());
     
@@ -243,22 +246,28 @@ async fn update_position(client: &TachibanaClient, config: &AbcdfConfig) -> anyh
 
 async fn send_new_orders(client: &TachibanaClient, config: &AbcdfConfig, pred_side: Side) -> anyhow::Result<()> {
     let poss = POS.read()?.clone();
+    let mut order_result = anyhow::Result::<()>::Ok(());
     if poss[pred_side.inv() as usize].amount.value > 0 {
         let res = client.send(OrderRequest::new(
             config.symbol.base,
-            pred_side.inv().into(),
+            pred_side.into(),
             OrderTime::Closing,
             OrderPrice::Market,
             poss[pred_side.inv() as usize].amount,
             TradingType::CloseSystemMargin,
-        )).await?;
-        info!("Close order: {:?}", res);
+        )).await;
+        if let Ok(res) = &res {
+            info!("Close order: {:?}", res);
+        }
+        order_result = order_result.and(res.map(|_| ()));
     }
     if poss[pred_side as usize].amount.is_zero() {
         let res = client.send(MarginBalanceRequest { 
             s_hituke_index: 0
         }).await?;
-        let all = res.s_azukari_kin * LEVERAGE;
+        let deposit = STATUS.read().get(&config.symbol)["deposit"].as_i64().unwrap_or_default().max(res.s_azukari_kin);
+        STATUS.write().update(config.symbol, json!({"deposit": deposit}))?;
+        let all = deposit * LEVERAGE;
         let unit_margin = all as f64 * 0.45;
         let amount = FloatExp::from_f64_floor(unit_margin / *LAST_PRICE.get().with_context(|| "not initialized OnceLock")?, config.symbol.amount_precision());
 
@@ -269,8 +278,11 @@ async fn send_new_orders(client: &TachibanaClient, config: &AbcdfConfig, pred_si
             OrderPrice::Market,
             amount,
             TradingType::OpenSystemMargin,
-        )).await?;
-        info!("Open order. all_margin: {}, order_amount: {}, res: {:?}", all, amount, res);
+        )).await;
+        if let Ok(res) = &res {
+            info!("Open order. all_margin: {}, order_amount: {}, res: {:?}", all, amount, res);
+        }
+        order_result = order_result.and(res.map(|_| ()));
     }
-    Ok(())
+    order_result
 }
