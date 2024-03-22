@@ -12,7 +12,7 @@ shannon_gmo:
 abcdf_tachibana:
   strategy: abcdf
   symbol:
-    base: "9432"
+    base: "7203"
     quote: JPY
     settlement: JPY
     type: margin
